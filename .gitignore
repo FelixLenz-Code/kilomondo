@@ -10,3 +10,6 @@ public/sw.js
 public/sw.js.map
 *.tsbuildinfo
 next-env.d.ts
+
+# Large unrelated assets (3D model downloads)
+3d modelle/

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireUser, getOwnedVehicle } from "@/lib/auth/guards";
 import { vehicleSchema } from "@/lib/validation";
+import { saveDataUrlImage, resolveImageUpdate } from "@/lib/images";
 
 export type ActionState = { error?: string };
 
@@ -32,8 +33,9 @@ export async function createVehicleAction(
     return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
   }
 
+  const coverImageId = await saveDataUrlImage(formData.get("coverImage"));
   const vehicle = await db.vehicle.create({
-    data: { ...parsed.data, userId: user.id },
+    data: { ...parsed.data, coverImageId, userId: user.id },
   });
   revalidatePath("/");
   redirect(`/vehicles/${vehicle.id}`);
@@ -53,7 +55,14 @@ export async function updateVehicleAction(
     return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
   }
 
-  await db.vehicle.update({ where: { id: vehicleId }, data: parsed.data });
+  const coverImageId = await resolveImageUpdate(
+    formData.get("coverImage"),
+    owned.coverImageId
+  );
+  await db.vehicle.update({
+    where: { id: vehicleId },
+    data: { ...parsed.data, coverImageId },
+  });
   revalidatePath(`/vehicles/${vehicleId}`);
   revalidatePath("/");
   redirect(`/vehicles/${vehicleId}`);
@@ -63,7 +72,23 @@ export async function deleteVehicleAction(vehicleId: string): Promise<void> {
   const user = await requireUser();
   const owned = await getOwnedVehicle(vehicleId, user.id);
   if (!owned) redirect("/");
+
+  // Collect and remove all images belonging to this vehicle.
+  const [repairs, cleanings] = await Promise.all([
+    db.repairEntry.findMany({ where: { vehicleId }, select: { id: true } }),
+    db.cleaningEntry.findMany({ where: { vehicleId }, select: { id: true } }),
+  ]);
+
   await db.vehicle.delete({ where: { id: vehicleId } });
+  await db.image.deleteMany({
+    where: {
+      OR: [
+        { id: owned.coverImageId ?? "" },
+        { repairId: { in: repairs.map((r) => r.id) } },
+        { cleaningId: { in: cleanings.map((c) => c.id) } },
+      ],
+    },
+  });
   revalidatePath("/");
   redirect("/");
 }

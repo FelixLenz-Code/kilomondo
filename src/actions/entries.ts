@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireUser, getOwnedVehicle } from "@/lib/auth/guards";
+import { saveEntryImages } from "@/lib/images";
 import {
   fuelSchema,
   odometerSchema,
@@ -104,7 +105,17 @@ export async function createRepairAction(
   });
   if (!parsed.success) return fail(parsed);
 
-  await db.repairEntry.create({ data: { ...parsed.data, vehicleId } });
+  const repair = await db.repairEntry.create({
+    data: { ...parsed.data, vehicleId },
+  });
+  await saveEntryImages(formData.getAll("beforeImages"), {
+    repairId: repair.id,
+    kind: "BEFORE",
+  });
+  await saveEntryImages(formData.getAll("afterImages"), {
+    repairId: repair.id,
+    kind: "AFTER",
+  });
   revalidatePath(`/vehicles/${vehicleId}/repairs`);
   revalidatePath(`/vehicles/${vehicleId}`);
   return { success: "Eintrag gespeichert." };
@@ -113,6 +124,7 @@ export async function createRepairAction(
 export async function deleteRepairAction(vehicleId: string, id: string) {
   await assertOwner(vehicleId);
   await db.repairEntry.deleteMany({ where: { id, vehicleId } });
+  await db.image.deleteMany({ where: { repairId: id } });
   revalidatePath(`/vehicles/${vehicleId}/repairs`);
   revalidatePath(`/vehicles/${vehicleId}`);
 }
@@ -135,7 +147,17 @@ export async function createCleaningAction(
   });
   if (!parsed.success) return fail(parsed);
 
-  await db.cleaningEntry.create({ data: { ...parsed.data, vehicleId } });
+  const cleaning = await db.cleaningEntry.create({
+    data: { ...parsed.data, vehicleId },
+  });
+  await saveEntryImages(formData.getAll("beforeImages"), {
+    cleaningId: cleaning.id,
+    kind: "BEFORE",
+  });
+  await saveEntryImages(formData.getAll("afterImages"), {
+    cleaningId: cleaning.id,
+    kind: "AFTER",
+  });
   revalidatePath(`/vehicles/${vehicleId}/cleaning`);
   revalidatePath(`/vehicles/${vehicleId}`);
   return { success: "Eintrag gespeichert." };
@@ -144,6 +166,7 @@ export async function createCleaningAction(
 export async function deleteCleaningAction(vehicleId: string, id: string) {
   await assertOwner(vehicleId);
   await db.cleaningEntry.deleteMany({ where: { id, vehicleId } });
+  await db.image.deleteMany({ where: { cleaningId: id } });
   revalidatePath(`/vehicles/${vehicleId}/cleaning`);
   revalidatePath(`/vehicles/${vehicleId}`);
 }

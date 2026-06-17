@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { createRepairAction, deleteRepairAction } from "@/actions/entries";
 import { RepairForm } from "@/components/forms/entry-forms";
 import { DeleteButton } from "@/components/delete-button";
+import { BeforeAfter } from "@/components/before-after";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate, formatKm } from "@/lib/utils";
@@ -27,6 +28,19 @@ export default async function RepairsPage({
     include: { repairEntries: { orderBy: [{ date: "desc" }] } },
   });
   if (!vehicle) return null;
+
+  const images = await db.image.findMany({
+    where: { repairId: { in: vehicle.repairEntries.map((r) => r.id) } },
+    select: { id: true, repairId: true, kind: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const imageMap = new Map<string, { before: string[]; after: string[] }>();
+  for (const im of images) {
+    if (!im.repairId) continue;
+    const m = imageMap.get(im.repairId) ?? { before: [], after: [] };
+    (im.kind === "BEFORE" ? m.before : m.after).push(im.id);
+    imageMap.set(im.repairId, m);
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
@@ -67,6 +81,10 @@ export default async function RepairsPage({
                 {r.description && (
                   <p className="mt-1 text-sm text-muted-foreground">{r.description}</p>
                 )}
+                <BeforeAfter
+                  before={imageMap.get(r.id)?.before ?? []}
+                  after={imageMap.get(r.id)?.after ?? []}
+                />
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-medium">{formatCurrency(r.cost)}</span>

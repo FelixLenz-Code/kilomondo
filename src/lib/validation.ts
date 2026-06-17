@@ -1,12 +1,21 @@
 import { z } from "zod";
 
+// FormData.get() returns `string | null`, so optional fields must tolerate
+// null (an absent field) as well as undefined and empty strings.
 const optionalString = z
   .string()
   .trim()
-  .optional()
-  .transform((v) => (v === "" ? undefined : v));
+  .nullish()
+  .transform((v) => (v == null || v === "" ? undefined : v));
 
 const coerceNumber = z.coerce.number({ invalid_type_error: "Zahl erforderlich" });
+
+// Optional, non-negative integer. Empty string / null (unfilled field) -> undefined
+// so a nullable column stays null instead of being coerced to 0.
+const optionalOdometer = z.preprocess(
+  (v) => (v === "" || v == null ? undefined : v),
+  coerceNumber.int().min(0).optional()
+);
 
 export const loginSchema = z.object({
   email: z.string().trim().email("Ungültige E-Mail-Adresse"),
@@ -24,8 +33,8 @@ export const vehicleSchema = z.object({
     .max(2100)
     .optional()
     .or(z.literal("").transform(() => undefined)),
-  licensePlate: optionalString,
-  vin: optionalString,
+  licensePlate: optionalString.transform((v) => v?.toUpperCase()),
+  vin: optionalString.transform((v) => v?.toUpperCase()),
   fuelType: z.enum(["PETROL", "DIESEL", "ELECTRIC", "HYBRID", "LPG"]),
   color: optionalString,
   initialOdometer: coerceNumber.int().min(0).default(0),
@@ -50,7 +59,7 @@ export const odometerSchema = z.object({
 
 export const repairSchema = z.object({
   date: z.coerce.date(),
-  odometer: coerceNumber.int().min(0).optional().or(z.literal("").transform(() => undefined)),
+  odometer: optionalOdometer,
   title: z.string().trim().min(1, "Titel erforderlich").max(120),
   description: optionalString,
   category: z.enum(["REPAIR", "SERVICE", "INSPECTION", "TIRES", "OTHER"]),
@@ -61,7 +70,7 @@ export const repairSchema = z.object({
 
 export const cleaningSchema = z.object({
   date: z.coerce.date(),
-  odometer: coerceNumber.int().min(0).optional().or(z.literal("").transform(() => undefined)),
+  odometer: optionalOdometer,
   type: z.enum(["INTERIOR", "EXTERIOR", "FULL"]),
   cost: coerceNumber.min(0).default(0),
   products: optionalString,

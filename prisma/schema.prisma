@@ -34,6 +34,26 @@ enum CleaningType {
   FULL
 }
 
+enum ImageKind {
+  BEFORE
+  AFTER
+}
+
+model Image {
+  id         String     @id @default(cuid())
+  mimeType   String
+  data       Bytes
+  createdAt  DateTime   @default(now())
+  // Optional linkage for before/after galleries (cover images are referenced
+  // directly via Vehicle.coverImageId instead).
+  repairId   String?
+  cleaningId String?
+  kind       ImageKind?
+
+  @@index([repairId])
+  @@index([cleaningId])
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -70,7 +90,7 @@ model Vehicle {
   vin            String?
   fuelType       FuelType @default(PETROL)
   color          String?
-  photoUrl       String?
+  coverImageId   String?
   initialOdometer Int     @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

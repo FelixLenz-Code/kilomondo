@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { AlertMessage } from "@/components/ui/alert-message";
+import { ImagePicker } from "@/components/forms/image-picker";
 
 type State = { error?: string };
 
@@ -35,6 +36,12 @@ export function VehicleForm({
           placeholder="z. B. Mein Alltagswagen"
         />
       </div>
+
+      <ImagePicker
+        name="coverImage"
+        label="Startseitenbild"
+        existingImageId={vehicle?.coverImageId}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
@@ -72,6 +79,10 @@ export function VehicleForm({
             name="licensePlate"
             defaultValue={vehicle?.licensePlate ?? ""}
             placeholder="M-AB 1234"
+            className="uppercase placeholder:normal-case"
+            onChange={(e) => {
+              e.target.value = e.target.value.toUpperCase();
+            }}
           />
         </div>
         <div className="space-y-2">
