@@ -26,17 +26,11 @@ export default async function VehicleLayout({
           <ArrowLeft className="size-4" /> Garage
         </Link>
         {hasVehicleMedia(vehicle) ? (
-          <div className="relative mt-2 overflow-hidden rounded-xl border border-border">
-            <VehicleMedia
-              status={vehicle.animationStatus}
-              videoId={vehicle.animationVideoId}
-              posterId={vehicle.animationPosterId}
-              coverImageId={vehicle.coverImageId}
-              alt={vehicle.name}
-              className="h-48 w-full object-cover sm:h-60"
-            />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent" />
-            <div className="absolute bottom-0 left-0 p-5">
+          // Title and media sit side by side on desktop (car to the right, using
+          // the wide space) and stack on mobile (car on top, title below) so the
+          // text never overlaps the car.
+          <div className="mt-2 grid grid-cols-1 overflow-hidden rounded-xl border border-border bg-[#121418] sm:grid-cols-[1fr_1.3fr]">
+            <div className="order-2 flex flex-col justify-center p-5 sm:order-1">
               <h1 className="font-display text-3xl font-semibold tracking-tight">
                 {vehicle.name}
               </h1>
@@ -45,6 +39,16 @@ export default async function VehicleLayout({
                   .filter(Boolean)
                   .join(" ") || "Keine weiteren Details"}
               </p>
+            </div>
+            <div className="order-1 h-56 sm:order-2 sm:h-72">
+              <VehicleMedia
+                status={vehicle.animationStatus}
+                videoId={vehicle.animationVideoId}
+                posterId={vehicle.animationPosterId}
+                coverImageId={vehicle.coverImageId}
+                alt={vehicle.name}
+                className="size-full object-cover"
+              />
             </div>
           </div>
         ) : (

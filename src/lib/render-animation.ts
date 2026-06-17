@@ -27,10 +27,16 @@ import {
 
 export type RenderResult = { mp4: Buffer; poster: Buffer };
 
-const WIDTH = Number(process.env.RENDER_W) || 768;
-const HEIGHT = Number(process.env.RENDER_H) || 432;
+const WIDTH = Number(process.env.RENDER_W) || 1280;
+const HEIGHT = Number(process.env.RENDER_H) || 720;
 const FPS = Number(process.env.RENDER_FPS) || 30;
-const FRAMES = Number(process.env.RENDER_FRAMES) || 60; // 2.0s
+const FRAMES = Number(process.env.RENDER_FRAMES) || 75; // 2.5s
+// Supersampling: render larger, then downscale with ffmpeg (lanczos) for clean
+// anti-aliasing without the cost of MSAA under software WebGL.
+const SS = Number(process.env.RENDER_SS) || 1.5;
+const CW = Math.round((WIDTH * SS) / 2) * 2;
+const CH = Math.round((HEIGHT * SS) / 2) * 2;
+const FADE_S = 1.8;
 const require = createRequire(import.meta.url);
 
 /** three version-keyed cache of the browser assets we serve to the render page. */
@@ -114,20 +120,20 @@ function serveDir(rootDir: string): Promise<{ port: number; close: () => Promise
 /** The HTML + module script Chrome runs to render each frame deterministically. */
 function renderPageHtml(): string {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-  html,body{margin:0;background:#0b0f17;overflow:hidden}canvas{display:block}
+  html,body{margin:0;background:#121418;overflow:hidden}canvas{display:block}
   </style>
   <script type="importmap">{"imports":{"three":"/build/three.module.js","three/addons/":"/jsm/"}}</script>
   </head><body>
-  <canvas id="c" width="${WIDTH}" height="${HEIGHT}"></canvas>
+  <canvas id="c" width="${CW}" height="${CH}"></canvas>
   <script type="module">
   import * as THREE from "three";
   import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
   import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
   import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
-  import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
-  const W = ${WIDTH}, H = ${HEIGHT};
-  let pivot, renderer, scene, camera, START = 0, TOTAL = Math.PI * 2; // one full turn
+  const W = ${CW}, H = ${CH};
+  // Quarter turn, clockwise (negative Y), easing to the resting pose.
+  let pivot, renderer, scene, camera, START = 0, TOTAL = -Math.PI / 2;
 
   async function init() {
     const canvas = document.getElementById("c");
@@ -136,30 +142,78 @@ function renderPageHtml(): string {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
     renderer.setPixelRatio(1);
     renderer.setSize(W, H, false);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    // Neutral (Khronos PBR) tone mapping keeps colour/saturation far better than
+    // ACES, which washes a near-neutral paint out to greyscale.
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = 1.0;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.BasicShadowMap;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0b0f17);
+    // Matches the app's card surface (.glass over --background) so there is no
+    // visible seam between the video and the panel around the car name.
+    scene.background = new THREE.Color(0x121418);
+
+    // Coloured gradient environment (cool sky above, warm ground below). The
+    // metallic/clearcoat paint reflects it, giving the neutral anthracite real
+    // colour/life instead of a flat greyscale look. Only reflections are
+    // affected — the solid background above stays app-matched.
+    const envCanvas = document.createElement("canvas");
+    envCanvas.width = 16; envCanvas.height = 256;
+    const ectx = envCanvas.getContext("2d");
+    const grad = ectx.createLinearGradient(0, 0, 0, 256);
+    // Medium-bright studio with clear cool-blue sky and warm ground tints. The
+    // glossy clearcoat reflects these, giving the dark anthracite colour/life.
+    grad.addColorStop(0.0, "#5878be");   // sky – cool blue
+    grad.addColorStop(0.42, "#9bb0d6");  // upper – cool
+    grad.addColorStop(0.5, "#dcdee4");   // horizon – light
+    grad.addColorStop(0.62, "#8d97a6");  // ground – cool neutral (no warm tint)
+    grad.addColorStop(1.0, "#383d45");   // ground – dark cool neutral
+    ectx.fillStyle = grad;
+    ectx.fillRect(0, 0, 16, 256);
+    const envTex = new THREE.CanvasTexture(envCanvas);
+    envTex.colorSpace = THREE.SRGBColorSpace;
+    envTex.needsUpdate = true;
+    // Bake the gradient by rendering a sky sphere into the PMREM (the reliable
+    // path in headless WebGL; fromEquirectangular came through empty here).
+    const envScene = new THREE.Scene();
+    envScene.add(
+      new THREE.Mesh(
+        new THREE.SphereGeometry(100, 40, 40),
+        new THREE.MeshBasicMaterial({ map: envTex, side: THREE.BackSide })
+      )
+    );
     const pmrem = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = pmrem.fromScene(envScene).texture;
+    scene.environmentIntensity = 0.7;
 
     camera = new THREE.PerspectiveCamera(32, W / H, 0.1, 100);
 
-    const key = new THREE.DirectionalLight(0xffffff, 2.2);
+    // Warm key + cool fill + warm rim: gives the neutral paint lifelike coloured
+    // reflections (like a real photo) without changing its actual colour.
+    const key = new THREE.DirectionalLight(0xfff6ec, 1.5); // gently warm
     key.position.set(4, 7, 5);
     key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.radius = 6;
     key.shadow.camera.near = 0.5;
     key.shadow.camera.far = 30;
     key.shadow.camera.left = -4; key.shadow.camera.right = 4;
     key.shadow.camera.top = 4; key.shadow.camera.bottom = -4;
     key.shadow.bias = -0.0004;
     scene.add(key);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+
+    const fill = new THREE.DirectionalLight(0xaecbff, 0.6); // cool fill from the left
+    fill.position.set(-6, 3, 3);
+    scene.add(fill);
+
+    const rim = new THREE.DirectionalLight(0xffe9d0, 0.5); // warm rim from behind
+    rim.position.set(-3, 4, -6);
+    scene.add(rim);
+
+    // Slightly cool ambient → warm light / cool shadow split-tone.
+    scene.add(new THREE.AmbientLight(0xc2cdff, 0.12));
 
     pivot = new THREE.Group();
     scene.add(pivot);
@@ -182,7 +236,7 @@ function renderPageHtml(): string {
         if (m && m.transmission > 0) {
           m.transmission = 0;
           m.transparent = true;
-          m.opacity = 0.35;
+          m.opacity = 0.5;
         }
       }
     });
@@ -193,7 +247,7 @@ function renderPageHtml(): string {
     const center = box.getCenter(new THREE.Vector3());
     model.position.sub(center);
     const maxDim = Math.max(size.x, size.y, size.z) || 1;
-    const scale = 2.2 / maxDim;
+    const scale = 2.0 / maxDim;
     pivot.add(model);
     pivot.scale.setScalar(scale);
 
@@ -209,11 +263,21 @@ function renderPageHtml(): string {
     scene.add(ground);
     key.target = pivot;
 
-    // 3/4 elevated camera looking slightly above the base.
-    const az = THREE.MathUtils.degToRad(35);
-    const radius = 3.4;
-    camera.position.set(Math.sin(az) * radius, 1.5, Math.cos(az) * radius);
-    camera.lookAt(0, groundY + 0.45, 0);
+    // Flat 3/4 view. Fit the camera to the model's bounding sphere with margin
+    // so the whole car stays inside the frame even after object-cover cropping.
+    const sphereR = (size.length() / 2) * scale;
+    const vFov = THREE.MathUtils.degToRad(camera.fov);
+    const padding = 0.82; // tight crop so the car fills the frame
+    const dist = (sphereR / Math.sin(vFov / 2)) * padding;
+    const az = THREE.MathUtils.degToRad(42); // more turned-in 3/4 to use wide space
+    const el = THREE.MathUtils.degToRad(12); // low elevation = flatter view
+    const direction = new THREE.Vector3(
+      Math.sin(az) * Math.cos(el),
+      Math.sin(el),
+      Math.cos(az) * Math.cos(el)
+    );
+    camera.position.copy(direction.multiplyScalar(dist));
+    camera.lookAt(0, 0, 0);
 
     // Rest where the spin ends; spin starts a whole number of turns earlier.
     const FINAL_Y = THREE.MathUtils.degToRad(0);
@@ -222,7 +286,8 @@ function renderPageHtml(): string {
   }
 
   window.__renderFrame = (t) => {
-    const ease = 1 - Math.pow(1 - t, 3); // easeOutCubic
+    // easeInOutCubic: starts and ends at zero velocity (no jerky start).
+    const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
     pivot.rotation.y = START + ease * TOTAL;
     renderer.render(scene, camera);
   };
@@ -277,7 +342,7 @@ export async function renderVehicleAnimation(glb: Buffer): Promise<RenderResult>
       ],
     });
     const page = await browser.newPage();
-    await page.setViewport({ width: WIDTH, height: HEIGHT });
+    await page.setViewport({ width: CW, height: CH });
     await page.goto(`http://127.0.0.1:${server.port}/index.html`, {
       waitUntil: "load",
       timeout: 60000,
@@ -302,11 +367,15 @@ export async function renderVehicleAnimation(glb: Buffer): Promise<RenderResult>
     await run("ffmpeg", [
       "-y", "-framerate", String(FPS),
       "-i", path.join(framesDir, "f_%04d.png"),
-      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "medium", "-crf", "23",
+      // Downscale the supersampled frames (anti-aliasing) and fade in from the
+      // background colour so the car gently appears instead of snapping in.
+      "-vf", `scale=${WIDTH}:${HEIGHT}:flags=lanczos,fade=t=in:st=0:d=${FADE_S}:color=0x121418`,
+      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "medium", "-crf", "21",
       "-movflags", "+faststart", mp4Path,
     ]);
     await run("ffmpeg", [
       "-y", "-i", path.join(framesDir, `f_${String(FRAMES - 1).padStart(4, "0")}.png`),
+      "-vf", `scale=${WIDTH}:${HEIGHT}:flags=lanczos`,
       "-q:v", "3", posterPath,
     ]);
 

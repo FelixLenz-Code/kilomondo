@@ -76,7 +76,7 @@ export default async function GaragePage() {
             );
             return (
               <Link key={v.id} href={`/vehicles/${v.id}`} className="group">
-                <Card className="glass h-full overflow-hidden transition-colors group-hover:border-primary/40">
+                <Card className="h-full overflow-hidden bg-[#121418] transition-colors group-hover:border-primary/40">
                   {hasVehicleMedia(v) && (
                     <VehicleMedia
                       status={v.animationStatus}
@@ -84,7 +84,7 @@ export default async function GaragePage() {
                       posterId={v.animationPosterId}
                       coverImageId={v.coverImageId}
                       alt={v.name}
-                      className="h-40 w-full object-cover"
+                      className="h-48 w-full object-cover"
                     />
                   )}
                   <CardContent className="space-y-4 p-6">

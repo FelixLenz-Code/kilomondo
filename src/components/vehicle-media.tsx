@@ -18,7 +18,7 @@ type Props = {
  * holds the final frame) when ready, otherwise the cover image. While a render
  * is pending it shows a placeholder and refreshes the route until it's done.
  */
-export function VehicleMedia({ status, videoId, posterId, coverImageId, alt, className }: Props) {
+export function VehicleMedia({ status, videoId, coverImageId, alt, className }: Props) {
   const router = useRouter();
 
   useEffect(() => {
@@ -28,11 +28,14 @@ export function VehicleMedia({ status, videoId, posterId, coverImageId, alt, cla
   }, [status, router]);
 
   if (status === "READY" && videoId) {
+    // No poster: the poster is the resting (end) frame and would flash before
+    // playback starts. The video's own first frame is the background colour, so
+    // a matching background makes the start seamless.
     return (
       <video
         className={className}
+        style={{ backgroundColor: "#121418" }}
         src={`/api/images/${videoId}`}
-        poster={posterId ? `/api/images/${posterId}` : undefined}
         autoPlay
         muted
         playsInline
