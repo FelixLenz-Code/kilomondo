@@ -8,6 +8,7 @@ import {
   Gauge,
   Wrench,
   Sparkles,
+  Images,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ export function VehicleTabs({ vehicleId }: { vehicleId: string }) {
     { href: `${base}/mileage`, label: "Kilometer", short: "km", icon: Gauge },
     { href: `${base}/repairs`, label: "Reparaturen", short: "Reparatur", icon: Wrench },
     { href: `${base}/cleaning`, label: "Pflege", short: "Pflege", icon: Sparkles },
+    { href: `${base}/gallery`, label: "Galerie", short: "Bilder", icon: Images },
     { href: `${base}/settings`, label: "Einstellungen", short: "Mehr", icon: Settings },
   ];
 
