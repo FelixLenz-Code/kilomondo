@@ -13,7 +13,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function VehicleTabs({ vehicleId }: { vehicleId: string }) {
+export function VehicleTabs({
+  vehicleId,
+  showSettings = true,
+}: {
+  vehicleId: string;
+  showSettings?: boolean;
+}) {
   const pathname = usePathname();
   const base = `/vehicles/${vehicleId}`;
 
@@ -24,7 +30,10 @@ export function VehicleTabs({ vehicleId }: { vehicleId: string }) {
     { href: `${base}/repairs`, label: "Reparaturen", short: "Reparatur", icon: Wrench },
     { href: `${base}/cleaning`, label: "Pflege", short: "Pflege", icon: Sparkles },
     { href: `${base}/gallery`, label: "Galerie", short: "Bilder", icon: Images },
-    { href: `${base}/settings`, label: "Einstellungen", short: "Mehr", icon: Settings },
+    // Settings (incl. sharing, export, delete) are owner-only.
+    ...(showSettings
+      ? [{ href: `${base}/settings`, label: "Einstellungen", short: "Mehr", icon: Settings }]
+      : []),
   ];
 
   return (

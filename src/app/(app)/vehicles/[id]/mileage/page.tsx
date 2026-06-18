@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/guards";
+import { requireUser, vehicleAccessWhere, getVehicleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { createOdometerAction, deleteOdometerAction } from "@/actions/entries";
 import { OdometerForm } from "@/components/forms/entry-forms";
@@ -13,22 +13,26 @@ export default async function MileagePage({
 }) {
   const { id } = await params;
   const user = await requireUser();
+  const access = await getVehicleAccess(id, user.id);
+  const canEdit = access != null && access.level !== "VIEWER";
   const vehicle = await db.vehicle.findFirst({
-    where: { id, userId: user.id },
+    where: { id, ...vehicleAccessWhere(user.id) },
     include: { odometerEntries: { orderBy: [{ date: "desc" }] } },
   });
   if (!vehicle) return null;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-      <Card className="glass h-fit">
-        <CardHeader>
-          <CardTitle>Kilometerstand erfassen</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <OdometerForm action={createOdometerAction.bind(null, id)} />
-        </CardContent>
-      </Card>
+    <div className={canEdit ? "grid gap-6 lg:grid-cols-[380px_1fr]" : "space-y-6"}>
+      {canEdit && (
+        <Card className="glass h-fit">
+          <CardHeader>
+            <CardTitle>Kilometerstand erfassen</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <OdometerForm action={createOdometerAction.bind(null, id)} />
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="glass">
         <CardHeader>
@@ -52,7 +56,9 @@ export default async function MileagePage({
                   {o.note ? ` · ${o.note}` : ""}
                 </p>
               </div>
-              <DeleteButton action={deleteOdometerAction.bind(null, id, o.id)} />
+              {canEdit && (
+                <DeleteButton action={deleteOdometerAction.bind(null, id, o.id)} />
+              )}
             </div>
           ))}
         </CardContent>

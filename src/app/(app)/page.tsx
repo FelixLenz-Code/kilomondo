@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Car, Plus, Gauge } from "lucide-react";
-import { requireUser } from "@/lib/auth/guards";
+import { Car, Plus, Gauge, Users } from "lucide-react";
+import { requireUser, vehicleAccessWhere } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,7 @@ const fuelTypeLabel: Record<string, string> = {
 export default async function GaragePage() {
   const user = await requireUser();
   const vehicles = await db.vehicle.findMany({
-    where: { userId: user.id },
+    where: vehicleAccessWhere(user.id),
     orderBy: { createdAt: "asc" },
     include: {
       fuelEntries: { select: { odometer: true } },
@@ -98,9 +98,14 @@ export default async function GaragePage() {
                           <Car className="size-5" />
                         </span>
                       )}
-                      <Badge variant="secondary" className="ml-auto">
-                        {fuelTypeLabel[v.fuelType]}
-                      </Badge>
+                      <div className="ml-auto flex items-center gap-2">
+                        {v.userId !== user.id && (
+                          <Badge variant="secondary" className="gap-1">
+                            <Users className="size-3" /> Geteilt
+                          </Badge>
+                        )}
+                        <Badge variant="secondary">{fuelTypeLabel[v.fuelType]}</Badge>
+                      </div>
                     </div>
                     <div>
                       <p className="font-display text-lg font-semibold">{v.name}</p>

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireUser, getOwnedVehicle } from "@/lib/auth/guards";
+import { requireUser, getVehicleAccess } from "@/lib/auth/guards";
 import { canisterSchema, canisterFillSchema, canisterPourSchema } from "@/lib/validation";
 import { canisterState, round2 } from "@/lib/canister";
 
@@ -14,8 +14,18 @@ function fail(parsed: { error: { errors: { message: string }[] } }): ActionState
   return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
 }
 
-async function ownCanister(canisterId: string, userId: string) {
-  return db.canister.findFirst({ where: { id: canisterId, userId } });
+// Canisters belong to the vehicle's owner but are usable by anyone with edit
+// access (pouring/filling is "making entries"). Returns the owner id to scope
+// canisters by, or null when the current user may not edit this vehicle.
+async function vehicleEditorOwnerId(vehicleId: string): Promise<string | null> {
+  const user = await requireUser();
+  const access = await getVehicleAccess(vehicleId, user.id);
+  if (!access || access.level === "VIEWER") return null;
+  return access.ownerId;
+}
+
+async function ownCanister(canisterId: string, ownerId: string) {
+  return db.canister.findFirst({ where: { id: canisterId, userId: ownerId } });
 }
 
 function refreshFuel(vehicleId: string) {
@@ -30,7 +40,8 @@ export async function createCanisterAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  const user = await requireUser();
+  const ownerId = await vehicleEditorOwnerId(vehicleId);
+  if (!ownerId) return { error: "Keine Berechtigung." };
   const parsed = canisterSchema.safeParse({
     name: formData.get("name"),
     capacity: formData.get("capacity"),
@@ -38,14 +49,14 @@ export async function createCanisterAction(
     notes: formData.get("notes"),
   });
   if (!parsed.success) return fail(parsed);
-  await db.canister.create({ data: { ...parsed.data, userId: user.id } });
+  await db.canister.create({ data: { ...parsed.data, userId: ownerId } });
   refreshFuel(vehicleId);
   return { success: "Kanister angelegt." };
 }
 
 export async function deleteCanisterAction(canisterId: string, vehicleId: string) {
-  const user = await requireUser();
-  if (!(await ownCanister(canisterId, user.id))) return;
+  const ownerId = await vehicleEditorOwnerId(vehicleId);
+  if (!ownerId || !(await ownCanister(canisterId, ownerId))) return;
   // Pours keep their stored cost (FuelEntry.canisterId is set null); fills cascade.
   await db.canister.delete({ where: { id: canisterId } });
   refreshFuel(vehicleId);
@@ -59,8 +70,9 @@ export async function createCanisterFillAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  const user = await requireUser();
-  const canister = await ownCanister(canisterId, user.id);
+  const ownerId = await vehicleEditorOwnerId(vehicleId);
+  if (!ownerId) return { error: "Keine Berechtigung." };
+  const canister = await ownCanister(canisterId, ownerId);
   if (!canister) return { error: "Kanister nicht gefunden." };
 
   const parsed = canisterFillSchema.safeParse({
@@ -86,12 +98,13 @@ export async function createCanisterFillAction(
 }
 
 export async function deleteCanisterFillAction(fillId: string, vehicleId: string) {
-  const user = await requireUser();
+  const ownerId = await vehicleEditorOwnerId(vehicleId);
+  if (!ownerId) return;
   const fill = await db.canisterFill.findUnique({
     where: { id: fillId },
     include: { canister: { select: { userId: true } } },
   });
-  if (!fill || fill.canister.userId !== user.id) return;
+  if (!fill || fill.canister.userId !== ownerId) return;
   await db.canisterFill.delete({ where: { id: fillId } });
   refreshFuel(vehicleId);
 }
@@ -103,11 +116,11 @@ export async function createCanisterPourAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  const user = await requireUser();
-  if (!(await getOwnedVehicle(vehicleId, user.id))) return { error: "Fahrzeug nicht gefunden." };
+  const ownerId = await vehicleEditorOwnerId(vehicleId);
+  if (!ownerId) return { error: "Keine Berechtigung." };
 
   const canisterId = String(formData.get("canisterId") ?? "");
-  const canister = await ownCanister(canisterId, user.id);
+  const canister = await ownCanister(canisterId, ownerId);
   if (!canister) return { error: "Bitte einen Kanister wählen." };
 
   const parsed = canisterPourSchema.safeParse({

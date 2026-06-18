@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/guards";
+import { requireUser, vehicleAccessWhere, getVehicleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { createCleaningAction, deleteCleaningAction } from "@/actions/entries";
 import { CleaningForm } from "@/components/forms/entry-forms";
@@ -21,8 +21,10 @@ export default async function CleaningPage({
 }) {
   const { id } = await params;
   const user = await requireUser();
+  const access = await getVehicleAccess(id, user.id);
+  const canEdit = access != null && access.level !== "VIEWER";
   const vehicle = await db.vehicle.findFirst({
-    where: { id, userId: user.id },
+    where: { id, ...vehicleAccessWhere(user.id) },
     include: { cleaningEntries: { orderBy: [{ date: "desc" }] } },
   });
   if (!vehicle) return null;
@@ -41,15 +43,17 @@ export default async function CleaningPage({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
-      <Card className="glass h-fit">
-        <CardHeader>
-          <CardTitle>Neuer Pflege-Eintrag</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <CleaningForm action={createCleaningAction.bind(null, id)} />
-        </CardContent>
-      </Card>
+    <div className={canEdit ? "grid gap-6 lg:grid-cols-[420px_1fr]" : "space-y-6"}>
+      {canEdit && (
+        <Card className="glass h-fit">
+          <CardHeader>
+            <CardTitle>Neuer Pflege-Eintrag</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CleaningForm action={createCleaningAction.bind(null, id)} />
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="glass">
         <CardHeader>
@@ -87,7 +91,9 @@ export default async function CleaningPage({
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-medium">{formatCurrency(c.cost)}</span>
-                <DeleteButton action={deleteCleaningAction.bind(null, id, c.id)} />
+                {canEdit && (
+                  <DeleteButton action={deleteCleaningAction.bind(null, id, c.id)} />
+                )}
               </div>
             </div>
           ))}

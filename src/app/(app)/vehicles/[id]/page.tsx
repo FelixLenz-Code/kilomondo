@@ -1,5 +1,5 @@
 import { Gauge, Route, Fuel, Wallet, Droplets, TrendingDown } from "lucide-react";
-import { requireUser } from "@/lib/auth/guards";
+import { requireUser, vehicleAccessWhere } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import {
   computeStats,
@@ -22,7 +22,7 @@ export default async function VehicleDashboard({
   const { id } = await params;
   const user = await requireUser();
   const vehicle = await db.vehicle.findFirst({
-    where: { id, userId: user.id },
+    where: { id, ...vehicleAccessWhere(user.id) },
     include: {
       fuelEntries: true,
       odometerEntries: true,

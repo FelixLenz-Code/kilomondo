@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/guards";
+import { requireUser, vehicleAccessWhere } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ImageGallery, type GalleryImage } from "@/components/image-gallery";
@@ -12,7 +12,7 @@ export default async function GalleryPage({
   const { id } = await params;
   const user = await requireUser();
   const vehicle = await db.vehicle.findFirst({
-    where: { id, userId: user.id },
+    where: { id, ...vehicleAccessWhere(user.id) },
     include: {
       repairEntries: { select: { id: true, title: true } },
       cleaningEntries: { select: { id: true, date: true } },

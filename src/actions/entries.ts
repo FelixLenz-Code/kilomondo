@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireUser, getOwnedVehicle } from "@/lib/auth/guards";
+import { requireUser, getVehicleAccess } from "@/lib/auth/guards";
 import { saveEntryImages } from "@/lib/images";
 import { canisterState, round2 } from "@/lib/canister";
 import {
@@ -16,11 +16,17 @@ const EPS = 1e-6;
 
 export type ActionState = { error?: string; success?: string };
 
-async function assertOwner(vehicleId: string) {
+/**
+ * Allow writing entries when the current user owns the vehicle OR has been
+ * granted EDITOR access. Viewers and strangers are rejected. Returns the
+ * owner id so owner-scoped resources (canisters) resolve correctly even when
+ * a shared editor is the one writing.
+ */
+async function assertCanEdit(vehicleId: string): Promise<{ ownerId: string }> {
   const user = await requireUser();
-  const owned = await getOwnedVehicle(vehicleId, user.id);
-  if (!owned) throw new Error("forbidden");
-  return owned;
+  const access = await getVehicleAccess(vehicleId, user.id);
+  if (!access || access.level === "VIEWER") throw new Error("forbidden");
+  return { ownerId: access.ownerId };
 }
 
 function fail(parsed: { error: { errors: { message: string }[] } }): ActionState {
@@ -34,7 +40,7 @@ export async function createFuelAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  const owned = await assertOwner(vehicleId);
+  const { ownerId } = await assertCanEdit(vehicleId);
   const parsed = fuelSchema.safeParse({
     date: formData.get("date"),
     odometer: formData.get("odometer"),
@@ -58,7 +64,7 @@ export async function createFuelAction(
     const canisterId = ids[i];
     const liters = Number(String(litersRaw[i] ?? "").replace(",", "."));
     if (!canisterId || !Number.isFinite(liters) || liters <= 0) continue;
-    const canister = await db.canister.findFirst({ where: { id: canisterId, userId: owned.userId } });
+    const canister = await db.canister.findFirst({ where: { id: canisterId, userId: ownerId } });
     if (!canister) return { error: "Kanister nicht gefunden." };
     const state = await canisterState(canisterId);
     if (state && liters > state.capacity - state.liters + EPS) {
@@ -89,7 +95,7 @@ export async function createFuelAction(
 }
 
 export async function deleteFuelAction(vehicleId: string, id: string) {
-  await assertOwner(vehicleId);
+  await assertCanEdit(vehicleId);
   await db.fuelEntry.deleteMany({ where: { id, vehicleId } });
   revalidatePath(`/vehicles/${vehicleId}/fuel`);
   revalidatePath(`/vehicles/${vehicleId}`);
@@ -102,7 +108,7 @@ export async function createOdometerAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await assertOwner(vehicleId);
+  await assertCanEdit(vehicleId);
   const parsed = odometerSchema.safeParse({
     date: formData.get("date"),
     odometer: formData.get("odometer"),
@@ -117,7 +123,7 @@ export async function createOdometerAction(
 }
 
 export async function deleteOdometerAction(vehicleId: string, id: string) {
-  await assertOwner(vehicleId);
+  await assertCanEdit(vehicleId);
   await db.odometerEntry.deleteMany({ where: { id, vehicleId } });
   revalidatePath(`/vehicles/${vehicleId}/mileage`);
   revalidatePath(`/vehicles/${vehicleId}`);
@@ -130,7 +136,7 @@ export async function createRepairAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await assertOwner(vehicleId);
+  await assertCanEdit(vehicleId);
   const parsed = repairSchema.safeParse({
     date: formData.get("date"),
     odometer: formData.get("odometer"),
@@ -160,7 +166,7 @@ export async function createRepairAction(
 }
 
 export async function deleteRepairAction(vehicleId: string, id: string) {
-  await assertOwner(vehicleId);
+  await assertCanEdit(vehicleId);
   await db.repairEntry.deleteMany({ where: { id, vehicleId } });
   await db.image.deleteMany({ where: { repairId: id } });
   revalidatePath(`/vehicles/${vehicleId}/repairs`);
@@ -174,7 +180,7 @@ export async function createCleaningAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await assertOwner(vehicleId);
+  await assertCanEdit(vehicleId);
   const parsed = cleaningSchema.safeParse({
     date: formData.get("date"),
     odometer: formData.get("odometer"),
@@ -202,7 +208,7 @@ export async function createCleaningAction(
 }
 
 export async function deleteCleaningAction(vehicleId: string, id: string) {
-  await assertOwner(vehicleId);
+  await assertCanEdit(vehicleId);
   await db.cleaningEntry.deleteMany({ where: { id, vehicleId } });
   await db.image.deleteMany({ where: { cleaningId: id } });
   revalidatePath(`/vehicles/${vehicleId}/cleaning`);

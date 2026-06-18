@@ -1,8 +1,10 @@
-import { Download, FileText } from "lucide-react";
+import { redirect } from "next/navigation";
+import { Download, FileText, Users } from "lucide-react";
 import { requireUser } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { updateVehicleAction, deleteVehicleAction } from "@/actions/vehicles";
 import { VehicleForm } from "@/components/forms/vehicle-form";
+import { VehicleShare } from "@/components/vehicle-share";
 import { DeleteButton } from "@/components/delete-button";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -14,8 +16,21 @@ export default async function VehicleSettingsPage({
 }) {
   const { id } = await params;
   const user = await requireUser();
+  // Settings (incl. sharing/export/delete) are owner-only.
   const vehicle = await db.vehicle.findFirst({ where: { id, userId: user.id } });
-  if (!vehicle) return null;
+  if (!vehicle) redirect("/");
+
+  const shareRows = await db.vehicleShare.findMany({
+    where: { vehicleId: id },
+    include: { user: { select: { id: true, name: true, email: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  const shares = shareRows.map((s) => ({
+    id: s.user.id,
+    name: s.user.name,
+    email: s.user.email,
+    role: s.role,
+  }));
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -29,6 +44,23 @@ export default async function VehicleSettingsPage({
             vehicle={vehicle}
             submitLabel="Änderungen speichern"
           />
+        </CardContent>
+      </Card>
+
+      <Card className="glass">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Users className="size-5" /> Teilen
+          </CardTitle>
+          <CardDescription>
+            Gib anderen Nutzern Zugriff auf dieses Fahrzeug. <strong>Bearbeiter</strong>{" "}
+            können Tankungen, Kilometer, Reparaturen und Pflege erfassen;{" "}
+            <strong>Betrachter</strong> sehen nur. Einstellungen, Teilen und Löschen
+            bleiben dir vorbehalten.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <VehicleShare vehicleId={id} initialShares={shares} />
         </CardContent>
       </Card>
 

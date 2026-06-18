@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-import { requireUser, requireOwnedVehicle } from "@/lib/auth/guards";
+import { ArrowLeft, Users } from "lucide-react";
+import { requireUser, requireVehicleAccess } from "@/lib/auth/guards";
+import { db } from "@/lib/db";
 import { VehicleTabs } from "@/components/vehicle-tabs";
 import { VehicleMedia } from "@/components/vehicle-media";
+import { Badge } from "@/components/ui/badge";
 import { hasVehicleMedia } from "@/lib/vehicle-media";
 
 export default async function VehicleLayout({
@@ -14,7 +16,16 @@ export default async function VehicleLayout({
 }) {
   const { id } = await params;
   const user = await requireUser();
-  const vehicle = await requireOwnedVehicle(id, user.id);
+  const access = await requireVehicleAccess(id, user.id);
+  const isOwner = access.level === "OWNER";
+  const vehicle = await db.vehicle.findUniqueOrThrow({ where: { id } });
+  // For a shared vehicle, show whose it is.
+  const owner = isOwner
+    ? null
+    : await db.user.findUnique({
+        where: { id: access.ownerId },
+        select: { name: true },
+      });
 
   return (
     <div className="space-y-6 pb-24 sm:pb-0">
@@ -39,6 +50,11 @@ export default async function VehicleLayout({
                   .filter(Boolean)
                   .join(" ") || "Keine weiteren Details"}
               </p>
+              {owner && (
+                <Badge variant="secondary" className="mt-2 w-fit gap-1">
+                  <Users className="size-3" /> Geteilt von {owner.name}
+                </Badge>
+              )}
             </div>
             <div className="order-1 h-56 sm:order-2 sm:h-72">
               <VehicleMedia
@@ -61,10 +77,15 @@ export default async function VehicleLayout({
                 .filter(Boolean)
                 .join(" ") || "Keine weiteren Details"}
             </p>
+            {owner && (
+              <Badge variant="secondary" className="mt-2 w-fit gap-1">
+                <Users className="size-3" /> Geteilt von {owner.name}
+              </Badge>
+            )}
           </>
         )}
       </div>
-      <VehicleTabs vehicleId={id} />
+      <VehicleTabs vehicleId={id} showSettings={isOwner} />
       <div>{children}</div>
     </div>
   );

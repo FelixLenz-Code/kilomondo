@@ -12,6 +12,13 @@ enum Role {
   USER
 }
 
+// Access level a vehicle owner grants to another user via a VehicleShare.
+// VIEWER may only read; EDITOR may also add/edit/delete entries.
+enum ShareRole {
+  VIEWER
+  EDITOR
+}
+
 enum FuelType {
   PETROL
   DIESEL
@@ -82,6 +89,8 @@ model User {
   sessions  Session[]
   vehicles  Vehicle[]
   canisters Canister[]
+  // Vehicles owned by others that have been shared with this user.
+  sharedVehicles VehicleShare[]
 }
 
 model Session {
@@ -121,8 +130,26 @@ model Vehicle {
   odometerEntries OdometerEntry[]
   repairEntries  RepairEntry[]
   cleaningEntries CleaningEntry[]
+  shares         VehicleShare[]
 
   @@index([userId])
+}
+
+// Grants another user access to a vehicle they don't own. The owner manages
+// these; the granted user sees the vehicle in their garage with the given role.
+model VehicleShare {
+  id        String    @id @default(cuid())
+  vehicleId String
+  userId    String
+  role      ShareRole @default(EDITOR)
+  createdAt DateTime  @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, userId])
+  @@index([userId])
+  @@index([vehicleId])
 }
 
 model FuelEntry {

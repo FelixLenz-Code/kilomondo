@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/guards";
+import { requireUser, vehicleAccessWhere, getVehicleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { fuelUnit } from "@/lib/stats";
 import { canisterState } from "@/lib/canister";
@@ -18,16 +18,20 @@ export default async function FuelPage({
 }) {
   const { id } = await params;
   const user = await requireUser();
+  const access = await getVehicleAccess(id, user.id);
+  const canEdit = access != null && access.level !== "VIEWER";
   const vehicle = await db.vehicle.findFirst({
-    where: { id, userId: user.id },
+    where: { id, ...vehicleAccessWhere(user.id) },
     include: { fuelEntries: { orderBy: [{ date: "desc" }, { odometer: "desc" }] } },
   });
   if (!vehicle) return null;
   const unit = fuelUnit(vehicle) as "L" | "kWh";
 
-  // User-level canisters (shared across vehicles) with derived contents/value.
+  // Canisters belong to the vehicle's owner (shared across their vehicles), so
+  // a shared editor sees and uses the owner's canisters, not their own.
+  const ownerId = access?.ownerId ?? user.id;
   const canisterRows = await db.canister.findMany({
-    where: { userId: user.id },
+    where: { userId: ownerId },
     orderBy: { createdAt: "asc" },
   });
   const canisters: CanisterView[] = await Promise.all(
@@ -50,50 +54,52 @@ export default async function FuelPage({
     .map((c) => ({ id: c.id, name: c.name, liters: c.liters }));
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-      <div className="space-y-6">
-        <Card className="glass h-fit">
-          <CardHeader>
-            <CardTitle>Neue Tankung</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <FuelForm
-              action={createFuelAction.bind(null, id)}
-              unit={unit}
-              canisters={canisters.map((c) => ({
-                id: c.id,
-                name: c.name,
-                capacity: c.capacity,
-                currentLiters: c.liters,
-              }))}
-            />
-          </CardContent>
-        </Card>
-
-        {pourable.length > 0 && (
+    <div className={canEdit ? "grid gap-6 lg:grid-cols-[380px_1fr]" : "space-y-6"}>
+      {canEdit && (
+        <div className="space-y-6">
           <Card className="glass h-fit">
             <CardHeader>
-              <CardTitle>Aus Kanister nachfüllen</CardTitle>
+              <CardTitle>Neue Tankung</CardTitle>
             </CardHeader>
             <CardContent>
-              <CanisterPourForm
-                action={createCanisterPourAction.bind(null, id)}
-                canisters={pourable}
+              <FuelForm
+                action={createFuelAction.bind(null, id)}
                 unit={unit}
+                canisters={canisters.map((c) => ({
+                  id: c.id,
+                  name: c.name,
+                  capacity: c.capacity,
+                  currentLiters: c.liters,
+                }))}
               />
             </CardContent>
           </Card>
-        )}
 
-        <Card className="glass h-fit">
-          <CardHeader>
-            <CardTitle>Kanister</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <CanisterPanel vehicleId={id} unit={unit} canisters={canisters} />
-          </CardContent>
-        </Card>
-      </div>
+          {pourable.length > 0 && (
+            <Card className="glass h-fit">
+              <CardHeader>
+                <CardTitle>Aus Kanister nachfüllen</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CanisterPourForm
+                  action={createCanisterPourAction.bind(null, id)}
+                  canisters={pourable}
+                  unit={unit}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          <Card className="glass h-fit">
+            <CardHeader>
+              <CardTitle>Kanister</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CanisterPanel vehicleId={id} unit={unit} canisters={canisters} />
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Card className="glass">
         <CardHeader>
@@ -131,7 +137,9 @@ export default async function FuelPage({
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-medium">{formatCurrency(f.totalCost)}</span>
-                <DeleteButton action={deleteFuelAction.bind(null, id, f.id)} />
+                {canEdit && (
+                  <DeleteButton action={deleteFuelAction.bind(null, id, f.id)} />
+                )}
               </div>
             </div>
           ))}
