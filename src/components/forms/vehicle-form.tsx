@@ -54,10 +54,10 @@ export function VehicleForm({
         />
         <p className="text-xs text-muted-foreground">
           Optional: .glb-Datei hochladen. Das Auto dreht sich dann als Animation
-          (statt Bild) in Garage und Kopfzeile. Die Erstellung dauert nach dem
-          Speichern einen Moment.
+          (statt Bild) in Garage und Kopfzeile. Die Erstellung kann nach dem
+          Speichern einige Minuten in Anspruch nehmen.
           {vehicle?.animationStatus === "READY" && " — Animation vorhanden."}
-          {vehicle?.animationStatus === "PENDING" && " — Animation wird gerade erstellt …"}
+          {vehicle?.animationStatus === "PENDING" && " — Animation wird gerade erstellt … Dies kann einige Minuten dauern."}
           {vehicle?.animationStatus === "FAILED" && " — Letzte Erstellung fehlgeschlagen."}
         </p>
       </div>

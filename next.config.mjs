@@ -11,13 +11,22 @@ const nextConfig = {
   reactStrictMode: true,
   // puppeteer (server-side 3D animation rendering) must stay external — it
   // resolves its own Chromium and must not be bundled by Next.
-  serverExternalPackages: ["puppeteer", "puppeteer-core"],
+  // three must also stay external: render-animation.ts does
+  // `require.resolve("three")` to locate the package on disk and copy its
+  // build + examples/jsm into a temp dir served to headless Chrome. If bundled,
+  // webpack rewrites require.resolve to a numeric module id and path.dirname()
+  // throws ("path must be a string, received number").
+  serverExternalPackages: ["puppeteer", "puppeteer-core", "three"],
   experimental: {
     serverActions: {
       // Allow image uploads (base64) and GLB model uploads (up to ~25MB) in the
       // action payload.
       bodySizeLimit: "30mb",
     },
+    // Middleware buffers the request body and caps it independently of
+    // serverActions.bodySizeLimit (default 10MB). GLB models are ~17MB, so the
+    // body got truncated → "Unexpected end of form". Match the action limit.
+    middlewareClientMaxBodySize: "30mb",
   },
   webpack: (config) => {
     // tesseract.js is loaded only in the browser (OCR for odometer/fuel capture).

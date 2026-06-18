@@ -51,8 +51,11 @@ export function VehicleMedia({ status, videoId, coverImageId, alt, className }: 
           // eslint-disable-next-line @next/next/no-img-element
           <img src={`/api/images/${coverImageId}`} alt={alt} className="size-full object-cover" />
         )}
-        <div className="absolute inset-0 flex items-center justify-center gap-2 bg-background/60 text-sm text-muted-foreground backdrop-blur-sm">
-          <Loader2 className="size-4 animate-spin" /> Animation wird erstellt …
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-background/60 px-4 text-center text-sm text-muted-foreground backdrop-blur-sm">
+          <span className="flex items-center gap-2">
+            <Loader2 className="size-4 animate-spin" /> Animation wird erstellt …
+          </span>
+          <span className="text-xs">Dies kann einige Minuten in Anspruch nehmen.</span>
         </div>
       </div>
     );

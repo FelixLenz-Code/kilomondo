@@ -4,6 +4,11 @@
 
 @layer base {
   :root {
+    /* Fixed dark theme: makes native controls (date picker icon + calendar
+       popup, scrollbars) render dark too, so the date input's calendar icon
+       isn't black-on-black. */
+    color-scheme: dark;
+
     --background: 222 16% 6%;
     --foreground: 40 12% 92%;
 

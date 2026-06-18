@@ -3,7 +3,6 @@ import { spawn } from "node:child_process";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { createRequire } from "node:module";
 import {
   mkdir,
   mkdtemp,
@@ -37,7 +36,6 @@ const SS = Number(process.env.RENDER_SS) || 1.5;
 const CW = Math.round((WIDTH * SS) / 2) * 2;
 const CH = Math.round((HEIGHT * SS) / 2) * 2;
 const FADE_S = 1.8;
-const require = createRequire(import.meta.url);
 
 /** three version-keyed cache of the browser assets we serve to the render page. */
 let threeAssetsDir: string | null = null;
@@ -58,8 +56,12 @@ async function exists(p: string): Promise<boolean> {
 async function ensureThreeAssets(): Promise<string> {
   if (threeAssetsDir && (await exists(threeAssetsDir))) return threeAssetsDir;
   const revision = (await import("three")).REVISION;
-  // require.resolve("three") -> <root>/build/three.cjs ; go up to the package root.
-  const threeRoot = path.resolve(path.dirname(require.resolve("three")), "..");
+  // Locate three on disk to copy its build + examples/jsm into a served temp
+  // dir. We deliberately avoid require.resolve("three") here: webpack rewrites
+  // that literal to a numeric module id at build time, so path.dirname() would
+  // throw. The app runs via `next start` (cwd = project root) and three is a
+  // top-level dependency, so node_modules/three is the reliable location.
+  const threeRoot = path.join(process.cwd(), "node_modules", "three");
   const dir = path.join(os.tmpdir(), `carlog-three-${revision}`);
   if (!(await exists(path.join(dir, "index-ready")))) {
     await rm(dir, { recursive: true, force: true });
@@ -237,6 +239,22 @@ function renderPageHtml(): string {
           m.transmission = 0;
           m.transparent = true;
           m.opacity = 0.5;
+        }
+        // Car models often ship with their head/tail lights baked as bright
+        // emissive lenses (here emissiveIntensity 2.2). Rendered as-is they
+        // read as harsh solid-white blobs. Dim the emissive — and darken the
+        // lens so it stops mirroring the bright sky — so the lights only just
+        // glimmer ("on" but subtle). Guard with a flag: one material instance
+        // is usually shared across several lens meshes, so we must not stack
+        // the colour multiply.
+        if (
+          m && m.emissive && !m.userData.dimmedEmissive &&
+          m.emissive.r + m.emissive.g + m.emissive.b > 0
+        ) {
+          m.userData.dimmedEmissive = true;
+          m.emissiveIntensity = 0.35;
+          m.color.multiplyScalar(0.18);
+          m.envMapIntensity = 0.2;
         }
       }
     });
