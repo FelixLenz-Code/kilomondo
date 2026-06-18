@@ -1,4 +1,4 @@
-import { Download } from "lucide-react";
+import { Download, FileText } from "lucide-react";
 import { requireUser } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { updateVehicleAction, deleteVehicleAction } from "@/actions/vehicles";
@@ -36,12 +36,20 @@ export default async function VehicleSettingsPage({
         <CardHeader>
           <CardTitle>Export</CardTitle>
           <CardDescription>
-            Lädt das Fahrzeug mit allen Daten, Bildern und der 3D-Animation als ZIP
-            herunter — z. B. als Backup oder zum Umzug auf einen anderen Server.
-            Über „Importieren" in der Garage wieder einspielbar.
+            <strong>PDF-Übersicht:</strong> druckfreundliche Zusammenfassung mit Kennzahlen
+            und allen Einträgen. <strong>ZIP:</strong> komplettes Backup mit Daten, Bildern
+            und 3D-Animation — über „Importieren" in der Garage wieder einspielbar.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-wrap gap-2">
+          <a
+            href={`/vehicles/${id}/report`}
+            className={buttonVariants({ variant: "outline" })}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <FileText className="size-4" /> PDF-Übersicht
+          </a>
           <a
             href={`/vehicles/${id}/export`}
             className={buttonVariants({ variant: "outline" })}
