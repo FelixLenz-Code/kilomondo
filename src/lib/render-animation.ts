@@ -147,7 +147,8 @@ function renderPageHtml(): string {
     // Neutral (Khronos PBR) tone mapping keeps colour/saturation far better than
     // ACES, which washes a near-neutral paint out to greyscale.
     renderer.toneMapping = THREE.NeutralToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    // Slightly under 1.0 deepens the blacks → richer, more premium contrast.
+    renderer.toneMappingExposure = 0.96;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -165,13 +166,17 @@ function renderPageHtml(): string {
     envCanvas.width = 16; envCanvas.height = 256;
     const ectx = envCanvas.getContext("2d");
     const grad = ectx.createLinearGradient(0, 0, 0, 256);
-    // Medium-bright studio with clear cool-blue sky and warm ground tints. The
-    // glossy clearcoat reflects these, giving the dark anthracite colour/life.
-    grad.addColorStop(0.0, "#5878be");   // sky – cool blue
-    grad.addColorStop(0.42, "#9bb0d6");  // upper – cool
-    grad.addColorStop(0.5, "#dcdee4");   // horizon – light
-    grad.addColorStop(0.62, "#8d97a6");  // ground – cool neutral (no warm tint)
-    grad.addColorStop(1.0, "#383d45");   // ground – dark cool neutral
+    // Dark studio with a single crisp overhead "softbox" strip — the premium
+    // car-photography look: the glossy clearcoat catches the bright band as one
+    // clean specular streak rolling along the shoulder line, while the dark
+    // surroundings keep the blacks rich and the panels reading as deep + glossy.
+    grad.addColorStop(0.0, "#2c3744");   // ceiling – deep cool (keeps blacks rich)
+    grad.addColorStop(0.28, "#46586e");  // upper – cool, still dim
+    grad.addColorStop(0.35, "#f3f6fb");  // overhead softbox – crisp bright strip
+    grad.addColorStop(0.43, "#9aa9bd");  // sharp falloff below the strip
+    grad.addColorStop(0.5, "#d4d9e1");   // horizon – light
+    grad.addColorStop(0.6, "#6d7785");   // ground – cool neutral
+    grad.addColorStop(1.0, "#262b32");   // ground – dark cool neutral
     ectx.fillStyle = grad;
     ectx.fillRect(0, 0, 16, 256);
     const envTex = new THREE.CanvasTexture(envCanvas);
@@ -188,17 +193,19 @@ function renderPageHtml(): string {
     );
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(envScene).texture;
-    scene.environmentIntensity = 0.7;
+    // A touch more reflective so the bright softbox strip reads clearly on the
+    // paint; the darker surroundings keep this from washing the colour out.
+    scene.environmentIntensity = 0.85;
 
     camera = new THREE.PerspectiveCamera(32, W / H, 0.1, 100);
 
     // Warm key + cool fill + warm rim: gives the neutral paint lifelike coloured
     // reflections (like a real photo) without changing its actual colour.
-    const key = new THREE.DirectionalLight(0xfff6ec, 1.5); // gently warm
+    const key = new THREE.DirectionalLight(0xfff6ec, 1.35); // gently warm, a touch softer
     key.position.set(4, 7, 5);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    key.shadow.radius = 6;
+    key.shadow.radius = 9; // softer shadow edge = more refined
     key.shadow.camera.near = 0.5;
     key.shadow.camera.far = 30;
     key.shadow.camera.left = -4; key.shadow.camera.right = 4;
@@ -210,12 +217,13 @@ function renderPageHtml(): string {
     fill.position.set(-6, 3, 3);
     scene.add(fill);
 
-    const rim = new THREE.DirectionalLight(0xffe9d0, 0.5); // warm rim from behind
+    const rim = new THREE.DirectionalLight(0xffe9d0, 0.8); // warm rim, stronger edge definition
     rim.position.set(-3, 4, -6);
     scene.add(rim);
 
-    // Slightly cool ambient → warm light / cool shadow split-tone.
-    scene.add(new THREE.AmbientLight(0xc2cdff, 0.12));
+    // Lower ambient → deeper, more dramatic shadows (less flat, more premium).
+    // Slightly cool tint keeps the warm light / cool shadow split-tone.
+    scene.add(new THREE.AmbientLight(0xc2cdff, 0.08));
 
     pivot = new THREE.Group();
     scene.add(pivot);
