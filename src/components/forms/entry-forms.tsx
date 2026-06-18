@@ -41,43 +41,157 @@ function useResettingAction(action: Action, onSuccess?: () => void) {
 
 const fuelLabels = { L: "Liter", kWh: "kWh" } as const;
 
-export function FuelForm({ action, unit }: { action: Action; unit: "L" | "kWh" }) {
+const num = (s: string) => {
+  const n = parseFloat((s ?? "").replace(",", "."));
+  return isNaN(n) ? 0 : n;
+};
+const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+export function FuelForm({
+  action,
+  unit,
+  canisters = [],
+}: {
+  action: Action;
+  unit: "L" | "kWh";
+  canisters?: { id: string; name: string; capacity: number; currentLiters: number }[];
+}) {
   const [odometer, setOdometer] = useState("");
-  const [amount, setAmount] = useState("");
   const [price, setPrice] = useState("");
+  // "Menge" = what came out of the pump. Without canisters this is what goes
+  // into the car; with canisters it's the total to be split (car gets the rest).
+  const [amount, setAmount] = useState("");
   const [total, setTotal] = useState("");
   const [totalEdited, setTotalEdited] = useState(false);
+  const [withCan, setWithCan] = useState(false);
+  const [litersById, setLitersById] = useState<Record<string, string>>({});
 
   const { state, formAction, ref } = useResettingAction(action, () => {
     setOdometer("");
-    setAmount("");
     setPrice("");
+    setAmount("");
     setTotal("");
     setTotalEdited(false);
+    setWithCan(false);
+    setLitersById({});
   });
 
-  // Auto-calculate the total price from amount × price per unit, unless the
-  // user has manually overridden the total.
+  // Simple mode: total = amount × price (unless overridden).
   useEffect(() => {
-    if (totalEdited) return;
+    if (withCan || totalEdited) return;
     const a = parseFloat(amount.replace(",", "."));
     const p = parseFloat(price.replace(",", "."));
     if (!isNaN(a) && !isNaN(p)) setTotal((a * p).toFixed(2));
-  }, [amount, price, totalEdited]);
+  }, [amount, price, totalEdited, withCan]);
+
+  // Combined-mode derived values: car gets the pumped amount minus the canisters.
+  const p = num(price);
+  const selected = canisters
+    .map((c) => ({ ...c, liters: num(litersById[c.id] ?? "") }))
+    .filter((c) => c.liters > 0);
+  const canSum = selected.reduce((s, c) => s + c.liters, 0);
+  const carLiters = r2(num(amount) - canSum);
+  const carCost = r2(carLiters * p);
 
   return (
     <form ref={ref} action={formAction} className="space-y-4">
       <AlertMessage error={state.error} success={state.success} />
       <OdometerCapture onDetect={setOdometer} />
       <FuelPumpCapture
-        onDetect={({ amount: a, price: p }) => {
+        onDetect={({ amount: a, price: pp }) => {
           if (a !== undefined) setAmount(a);
-          if (p !== undefined) {
-            setPrice(p);
+          if (pp !== undefined) {
+            setPrice(pp);
             setTotalEdited(false);
           }
         }}
       />
+
+      {canisters.length > 0 && (
+        <label className="flex items-center gap-2 rounded-lg border border-border/60 bg-background/30 p-3 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={withCan}
+            onChange={(e) => setWithCan(e.target.checked)}
+            className="size-4 accent-[hsl(38_92%_55%)]"
+          />
+          An dieser Tankstelle auch Kanister aufgefüllt
+        </label>
+      )}
+
+      {withCan && (
+        <div className="space-y-3 rounded-lg border border-border/60 bg-background/30 p-3">
+          <p className="text-sm font-medium">Welche Kanister wurden mitgefüllt?</p>
+          {canisters.map((c) => {
+            const on = litersById[c.id] !== undefined;
+            const free = r2(c.capacity - c.currentLiters);
+            return (
+              <div key={c.id} className="space-y-1">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={(e) =>
+                      setLitersById((m) => {
+                        const next = { ...m };
+                        // Default to filling the canister to the brim.
+                        if (e.target.checked) next[c.id] = free > 0 ? String(free) : "";
+                        else delete next[c.id];
+                        return next;
+                      })
+                    }
+                    className="size-4 accent-[hsl(38_92%_55%)]"
+                  />
+                  {c.name}
+                  <span className="text-xs text-muted-foreground">({free.toFixed(1)} {unit} frei)</span>
+                </label>
+                {on && (
+                  <InputUnit
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    unit={unit}
+                    placeholder="Liter in diesen Kanister"
+                    value={litersById[c.id] ?? ""}
+                    onChange={(e) => setLitersById((m) => ({ ...m, [c.id]: e.target.value }))}
+                  />
+                )}
+              </div>
+            );
+          })}
+
+          {/* derived car share + per-canister cost, posted via hidden fields */}
+          <div className="rounded-md bg-background/40 p-2 text-sm">
+            <div className="flex justify-between">
+              <span>Ins Auto:</span>
+              <span className={carLiters < 0 ? "text-destructive" : "font-medium"}>
+                {carLiters.toFixed(2)} {unit} · {carCost.toFixed(2)} €
+              </span>
+            </div>
+            {selected.map((c) => (
+              <div key={c.id} className="flex justify-between text-muted-foreground">
+                <span>{c.name}:</span>
+                <span>{c.liters.toFixed(2)} {unit} · {r2(c.liters * p).toFixed(2)} €</span>
+              </div>
+            ))}
+            {carLiters < 0 && (
+              <p className="mt-1 text-xs text-destructive">
+                Kanister-Mengen übersteigen die Gesamtmenge.
+              </p>
+            )}
+          </div>
+
+          <input type="hidden" name="amount" value={carLiters > 0 ? carLiters : ""} />
+          <input type="hidden" name="totalCost" value={carLiters > 0 ? carCost : ""} />
+          {selected.map((c) => (
+            <span key={c.id}>
+              <input type="hidden" name="canisterFillId" value={c.id} />
+              <input type="hidden" name="canisterFillLiters" value={c.liters} />
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="date">Datum *</Label>
@@ -85,67 +199,39 @@ export function FuelForm({ action, unit }: { action: Action; unit: "L" | "kWh" }
         </div>
         <div className="space-y-2">
           <Label htmlFor="odometer">Kilometerstand *</Label>
-          <InputUnit
-            id="odometer"
-            name="odometer"
-            type="number"
-            min={0}
-            required
-            unit="km"
-            value={odometer}
-            onChange={(e) => setOdometer(e.target.value)}
-          />
+          <InputUnit id="odometer" name="odometer" type="number" min={0} required unit="km"
+            value={odometer} onChange={(e) => setOdometer(e.target.value)} />
         </div>
+
         <div className="space-y-2">
           <Label htmlFor="amount">Menge *</Label>
-          <InputUnit
-            id="amount"
-            name="amount"
-            type="number"
-            step="0.01"
-            min={0}
-            required
-            unit={unit}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder={fuelLabels[unit]}
-          />
+          <InputUnit id="amount" name={withCan ? undefined : "amount"} type="number" step="0.01" min={0} required unit={unit}
+            value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={fuelLabels[unit]} />
+          {withCan && (
+            <p className="text-xs text-muted-foreground">Gesamt an der Zapfsäule (Auto + Kanister)</p>
+          )}
         </div>
+
         <div className="space-y-2">
           <Label htmlFor="pricePerUnit">Preis pro {unit}</Label>
-          <InputUnit
-            id="pricePerUnit"
-            name="pricePerUnit"
-            type="number"
-            step="0.001"
-            min={0}
-            unit={`€/${unit}`}
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-          />
+          <InputUnit id="pricePerUnit" name="pricePerUnit" type="number" step="0.001" min={0} unit={`€/${unit}`}
+            value={price} onChange={(e) => setPrice(e.target.value)} />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="totalCost">Gesamtpreis * (autom.)</Label>
-          <InputUnit
-            id="totalCost"
-            name="totalCost"
-            type="number"
-            step="0.01"
-            min={0}
-            required
-            unit="€"
-            value={total}
-            onChange={(e) => {
-              setTotal(e.target.value);
-              setTotalEdited(true);
-            }}
-          />
-        </div>
+
+        {!withCan && (
+          <div className="space-y-2">
+            <Label htmlFor="totalCost">Gesamtpreis * (autom.)</Label>
+            <InputUnit id="totalCost" name="totalCost" type="number" step="0.01" min={0} required unit="€"
+              value={total} onChange={(e) => { setTotal(e.target.value); setTotalEdited(true); }} />
+          </div>
+        )}
+
         <div className="space-y-2">
           <Label htmlFor="station">Tankstelle</Label>
           <Input id="station" name="station" placeholder="z. B. Aral" />
         </div>
       </div>
+
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="isFullTank" defaultChecked className="size-4 accent-[hsl(38_92%_55%)]" />
         Volltankung (für Verbrauchsberechnung)
@@ -154,6 +240,7 @@ export function FuelForm({ action, unit }: { action: Action; unit: "L" | "kWh" }
         <Label htmlFor="notes">Notizen</Label>
         <Textarea id="notes" name="notes" />
       </div>
+
       <SubmitButton>Tankung hinzufügen</SubmitButton>
     </form>
   );
@@ -281,6 +368,179 @@ export function CleaningForm({ action }: { action: Action }) {
       </div>
       <BeforeAfterImages />
       <SubmitButton>Eintrag hinzufügen</SubmitButton>
+    </form>
+  );
+}
+
+/* ---------------- Canisters ---------------- */
+
+export function CanisterCreateForm({ action }: { action: Action }) {
+  const { state, formAction, ref } = useResettingAction(action);
+  return (
+    <form ref={ref} action={formAction} className="space-y-3">
+      <AlertMessage error={state.error} success={state.success} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="c-name">Name *</Label>
+          <Input id="c-name" name="name" required placeholder="z. B. Reservekanister" />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="c-capacity">Füllvermögen *</Label>
+          <InputUnit id="c-capacity" name="capacity" type="number" step="0.1" min={0} required unit="L" />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="c-fuelType">Spritsorte</Label>
+          <Select id="c-fuelType" name="fuelType" defaultValue="">
+            <option value="">— egal —</option>
+            <option value="PETROL">Benzin</option>
+            <option value="DIESEL">Diesel</option>
+            <option value="LPG">LPG</option>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="c-notes">Notiz</Label>
+          <Input id="c-notes" name="notes" />
+        </div>
+      </div>
+      <SubmitButton>Kanister anlegen</SubmitButton>
+    </form>
+  );
+}
+
+export function CanisterFillForm({ action, unit }: { action: Action; unit: "L" | "kWh" }) {
+  const [liters, setLiters] = useState("");
+  const [price, setPrice] = useState("");
+  const [total, setTotal] = useState("");
+  const [totalEdited, setTotalEdited] = useState(false);
+  const { state, formAction, ref } = useResettingAction(action, () => {
+    setLiters("");
+    setPrice("");
+    setTotal("");
+    setTotalEdited(false);
+  });
+  useEffect(() => {
+    if (totalEdited) return;
+    const a = parseFloat(liters.replace(",", "."));
+    const p = parseFloat(price.replace(",", "."));
+    if (!isNaN(a) && !isNaN(p)) setTotal((a * p).toFixed(2));
+  }, [liters, price, totalEdited]);
+
+  return (
+    <form ref={ref} action={formAction} className="space-y-3">
+      <AlertMessage error={state.error} success={state.success} />
+      <FuelPumpCapture
+        onDetect={({ amount: a, price: p }) => {
+          if (a !== undefined) setLiters(a);
+          if (p !== undefined) {
+            setPrice(p);
+            setTotalEdited(false);
+          }
+        }}
+      />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="ff-date">Datum *</Label>
+          <Input id="ff-date" name="date" type="date" required defaultValue={today()} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="ff-station">Tankstelle</Label>
+          <Input id="ff-station" name="station" placeholder="z. B. Aral" />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="ff-liters">Menge *</Label>
+          <InputUnit id="ff-liters" name="liters" type="number" step="0.01" min={0} required unit={unit}
+            value={liters} onChange={(e) => setLiters(e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="ff-price">Preis pro {unit}</Label>
+          <InputUnit id="ff-price" name="pricePerUnit" type="number" step="0.001" min={0} unit={`€/${unit}`}
+            value={price} onChange={(e) => setPrice(e.target.value)} />
+        </div>
+        <div className="space-y-2 sm:col-span-2">
+          <Label htmlFor="ff-total">Gesamtpreis * (autom.)</Label>
+          <InputUnit id="ff-total" name="totalCost" type="number" step="0.01" min={0} required unit="€"
+            value={total} onChange={(e) => { setTotal(e.target.value); setTotalEdited(true); }} />
+        </div>
+      </div>
+      <SubmitButton>Kanister befüllen</SubmitButton>
+    </form>
+  );
+}
+
+export function CanisterPourForm({
+  action,
+  canisters,
+  unit,
+}: {
+  action: Action;
+  canisters: { id: string; name: string; liters: number }[];
+  unit: "L" | "kWh";
+}) {
+  const [odometer, setOdometer] = useState("");
+  const [canisterId, setCanisterId] = useState(canisters[0]?.id ?? "");
+  const [amount, setAmount] = useState("");
+  const [amountEdited, setAmountEdited] = useState(false);
+  const { state, formAction, ref } = useResettingAction(action, () => {
+    setOdometer("");
+    setAmountEdited(false);
+  });
+
+  const selectedCan = canisters.find((c) => c.id === canisterId) ?? canisters[0];
+
+  // Default the amount to the selected canister's available litres (fill the
+  // tank to what's there), until the user edits it.
+  useEffect(() => {
+    if (amountEdited) return;
+    setAmount(selectedCan ? String(selectedCan.liters) : "");
+  }, [selectedCan?.id, selectedCan?.liters, amountEdited]);
+
+  return (
+    <form ref={ref} action={formAction} className="space-y-3">
+      <AlertMessage error={state.error} success={state.success} />
+      <OdometerCapture onDetect={setOdometer} />
+      <div className="space-y-2">
+        <Label htmlFor="p-canister">Kanister *</Label>
+        <Select
+          id="p-canister"
+          name="canisterId"
+          required
+          value={canisterId}
+          onChange={(e) => {
+            setCanisterId(e.target.value);
+            setAmountEdited(false);
+          }}
+        >
+          {canisters.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} — {c.liters.toFixed(1)} {unit} verfügbar
+            </option>
+          ))}
+        </Select>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="p-date">Datum *</Label>
+          <Input id="p-date" name="date" type="date" required defaultValue={today()} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="p-odometer">Kilometerstand *</Label>
+          <InputUnit id="p-odometer" name="odometer" type="number" min={0} required unit="km"
+            value={odometer} onChange={(e) => setOdometer(e.target.value)} />
+        </div>
+        <div className="space-y-2 sm:col-span-2">
+          <Label htmlFor="p-amount">Menge ins Auto *</Label>
+          <InputUnit id="p-amount" name="amount" type="number" step="0.01" min={0} required unit={unit}
+            value={amount} onChange={(e) => { setAmount(e.target.value); setAmountEdited(true); }} />
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="isFullTank" className="size-4 accent-[hsl(38_92%_55%)]" />
+        Volltankung (für Verbrauchsberechnung)
+      </label>
+      <p className="text-xs text-muted-foreground">
+        Kosten werden automatisch aus dem Ø-Preis des Kanisters berechnet.
+      </p>
+      <SubmitButton>Aus Kanister nachfüllen</SubmitButton>
     </form>
   );
 }

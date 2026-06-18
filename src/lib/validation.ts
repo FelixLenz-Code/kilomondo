@@ -77,6 +77,37 @@ export const cleaningSchema = z.object({
   notes: optionalString,
 });
 
+export const canisterSchema = z.object({
+  name: z.string().trim().min(1, "Name erforderlich").max(80),
+  capacity: coerceNumber.positive("Kapazität muss > 0 sein"),
+  fuelType: z
+    .enum(["PETROL", "DIESEL", "ELECTRIC", "HYBRID", "LPG"])
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+  notes: optionalString,
+});
+
+// A canister fill (purchase). Reused standalone and as the optional "also
+// filled a canister" block of the car fuel form.
+export const canisterFillSchema = z.object({
+  date: z.coerce.date(),
+  liters: coerceNumber.positive("Menge muss > 0 sein"),
+  pricePerUnit: coerceNumber.min(0),
+  totalCost: coerceNumber.min(0),
+  station: optionalString,
+  notes: optionalString,
+});
+
+// Pouring fuel from a canister into the car. Cost/price come from the canister,
+// so they are not part of the form.
+export const canisterPourSchema = z.object({
+  date: z.coerce.date(),
+  odometer: coerceNumber.int().min(0),
+  amount: coerceNumber.positive("Menge muss > 0 sein"),
+  isFullTank: z.coerce.boolean().default(false),
+  notes: optionalString,
+});
+
 export const createUserSchema = z.object({
   email: z.string().trim().email("Ungültige E-Mail-Adresse"),
   name: z.string().trim().min(1, "Name erforderlich").max(80),

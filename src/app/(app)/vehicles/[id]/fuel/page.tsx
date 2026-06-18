@@ -1,8 +1,11 @@
 import { requireUser } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { fuelUnit } from "@/lib/stats";
+import { canisterState } from "@/lib/canister";
 import { createFuelAction, deleteFuelAction } from "@/actions/entries";
-import { FuelForm } from "@/components/forms/entry-forms";
+import { createCanisterPourAction } from "@/actions/canisters";
+import { FuelForm, CanisterPourForm } from "@/components/forms/entry-forms";
+import { CanisterPanel, type CanisterView } from "@/components/canister-panel";
 import { DeleteButton } from "@/components/delete-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,16 +25,75 @@ export default async function FuelPage({
   if (!vehicle) return null;
   const unit = fuelUnit(vehicle) as "L" | "kWh";
 
+  // User-level canisters (shared across vehicles) with derived contents/value.
+  const canisterRows = await db.canister.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: "asc" },
+  });
+  const canisters: CanisterView[] = await Promise.all(
+    canisterRows.map(async (c) => {
+      const s = await canisterState(c.id);
+      return {
+        id: c.id,
+        name: c.name,
+        capacity: c.capacity,
+        fuelType: c.fuelType,
+        liters: s?.liters ?? 0,
+        value: s?.value ?? 0,
+        avgPrice: s?.avgPrice ?? 0,
+      };
+    })
+  );
+  const canisterName = new Map(canisters.map((c) => [c.id, c.name]));
+  const pourable = canisters
+    .filter((c) => c.liters > 0)
+    .map((c) => ({ id: c.id, name: c.name, liters: c.liters }));
+
   return (
     <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-      <Card className="glass h-fit">
-        <CardHeader>
-          <CardTitle>Neue Tankung</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <FuelForm action={createFuelAction.bind(null, id)} unit={unit} />
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        <Card className="glass h-fit">
+          <CardHeader>
+            <CardTitle>Neue Tankung</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <FuelForm
+              action={createFuelAction.bind(null, id)}
+              unit={unit}
+              canisters={canisters.map((c) => ({
+                id: c.id,
+                name: c.name,
+                capacity: c.capacity,
+                currentLiters: c.liters,
+              }))}
+            />
+          </CardContent>
+        </Card>
+
+        {pourable.length > 0 && (
+          <Card className="glass h-fit">
+            <CardHeader>
+              <CardTitle>Aus Kanister nachfüllen</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CanisterPourForm
+                action={createCanisterPourAction.bind(null, id)}
+                canisters={pourable}
+                unit={unit}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        <Card className="glass h-fit">
+          <CardHeader>
+            <CardTitle>Kanister</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CanisterPanel vehicleId={id} unit={unit} canisters={canisters} />
+          </CardContent>
+        </Card>
+      </div>
 
       <Card className="glass">
         <CardHeader>
@@ -51,9 +113,15 @@ export default async function FuelPage({
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{formatDate(f.date)}</span>
-                  <span className="text-sm text-muted-foreground">
-                    {formatKm(f.odometer)}
-                  </span>
+                  <span className="text-sm text-muted-foreground">{formatKm(f.odometer)}</span>
+                  {f.kind === "CANISTER" && (
+                    <Badge variant="secondary">
+                      Kanister
+                      {f.canisterId && canisterName.has(f.canisterId)
+                        ? `: ${canisterName.get(f.canisterId)}`
+                        : ""}
+                    </Badge>
+                  )}
                   {f.isFullTank && <Badge variant="secondary">Voll</Badge>}
                 </div>
                 <p className="text-sm text-muted-foreground">

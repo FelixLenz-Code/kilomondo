@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Camera, Loader2, Check } from "lucide-react";
+import { Camera, Loader2, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ocrImage } from "@/lib/image-client";
 
@@ -57,6 +57,13 @@ export function FuelPumpCapture({
     }
   }
 
+  function clearPhoto() {
+    if (preview) URL.revokeObjectURL(preview);
+    setPreview(null);
+    setStatus(null);
+    if (inputRef.current) inputRef.current.value = "";
+  }
+
   return (
     <div className="space-y-2">
       <input
@@ -84,15 +91,25 @@ export function FuelPumpCapture({
         ) : (
           <Camera />
         )}
-        Zapfsäule abfotografieren
+        {preview ? "Neu abfotografieren" : "Zapfsäule abfotografieren"}
       </Button>
       {preview && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={preview}
-          alt="Aufgenommenes Foto"
-          className="max-h-40 w-full rounded-md border border-border object-cover"
-        />
+        <div className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={preview}
+            alt="Aufgenommenes Foto"
+            className="max-h-40 w-full rounded-md border border-border object-cover"
+          />
+          <button
+            type="button"
+            onClick={clearPhoto}
+            title="Foto entfernen"
+            className="absolute right-1.5 top-1.5 rounded-full bg-background/80 p-1 text-foreground backdrop-blur hover:bg-background"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
       )}
       {status && <p className="text-xs text-muted-foreground">{status}</p>}
     </div>

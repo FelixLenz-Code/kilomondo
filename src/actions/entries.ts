@@ -4,12 +4,15 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireUser, getOwnedVehicle } from "@/lib/auth/guards";
 import { saveEntryImages } from "@/lib/images";
+import { canisterState, round2 } from "@/lib/canister";
 import {
   fuelSchema,
   odometerSchema,
   repairSchema,
   cleaningSchema,
 } from "@/lib/validation";
+
+const EPS = 1e-6;
 
 export type ActionState = { error?: string; success?: string };
 
@@ -31,7 +34,7 @@ export async function createFuelAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await assertOwner(vehicleId);
+  const owned = await assertOwner(vehicleId);
   const parsed = fuelSchema.safeParse({
     date: formData.get("date"),
     odometer: formData.get("odometer"),
@@ -44,10 +47,45 @@ export async function createFuelAction(
   });
   if (!parsed.success) return fail(parsed);
 
+  // Same station visit: one pump transaction filled the car tank AND, optionally,
+  // one or more canisters — all at the single price per litre below. Parallel
+  // arrays: canisterFillId[i] ⇄ canisterFillLiters[i].
+  const ids = formData.getAll("canisterFillId").map(String);
+  const litersRaw = formData.getAll("canisterFillLiters").map(String);
+  const price = parsed.data.pricePerUnit;
+  const fills: { canisterId: string; liters: number; totalCost: number }[] = [];
+  for (let i = 0; i < ids.length; i++) {
+    const canisterId = ids[i];
+    const liters = Number(String(litersRaw[i] ?? "").replace(",", "."));
+    if (!canisterId || !Number.isFinite(liters) || liters <= 0) continue;
+    const canister = await db.canister.findFirst({ where: { id: canisterId, userId: owned.userId } });
+    if (!canister) return { error: "Kanister nicht gefunden." };
+    const state = await canisterState(canisterId);
+    if (state && liters > state.capacity - state.liters + EPS) {
+      return { error: `„${canister.name}": nur noch ${(state.capacity - state.liters).toFixed(1)} L frei.` };
+    }
+    fills.push({ canisterId, liters, totalCost: round2(liters * price) });
+  }
+
   await db.fuelEntry.create({ data: { ...parsed.data, vehicleId } });
+  for (const f of fills) {
+    await db.canisterFill.create({
+      data: {
+        canisterId: f.canisterId,
+        date: parsed.data.date,
+        liters: f.liters,
+        pricePerUnit: price,
+        totalCost: f.totalCost,
+        station: parsed.data.station,
+      },
+    });
+  }
+
   revalidatePath(`/vehicles/${vehicleId}/fuel`);
   revalidatePath(`/vehicles/${vehicleId}`);
-  return { success: "Tankung gespeichert." };
+  return {
+    success: fills.length ? `Tankung + ${fills.length} Kanister gespeichert.` : "Tankung gespeichert.",
+  };
 }
 
 export async function deleteFuelAction(vehicleId: string, id: string) {

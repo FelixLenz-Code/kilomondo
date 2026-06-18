@@ -16,7 +16,7 @@ import { db } from "@/lib/db";
  */
 
 const FORMAT = "carlog-vehicle";
-const VERSION = 1;
+const VERSION = 2;
 
 const EXT: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -144,6 +144,39 @@ export async function exportVehicleZip(
     };
   });
 
+  // Canisters this vehicle's pours drew from, plus their fills, so an imported
+  // vehicle keeps full canister context (contents/value derivation).
+  const canisterIds = [
+    ...new Set(
+      v.fuelEntries
+        .filter((f) => f.kind === "CANISTER" && f.canisterId)
+        .map((f) => f.canisterId as string)
+    ),
+  ];
+  const canisterRows = canisterIds.length
+    ? await db.canister.findMany({ where: { id: { in: canisterIds } } })
+    : [];
+  const canisterFills = canisterIds.length
+    ? await db.canisterFill.findMany({ where: { canisterId: { in: canisterIds } }, orderBy: { date: "asc" } })
+    : [];
+  const canisters = canisterRows.map((c) => ({
+    key: c.id,
+    name: c.name,
+    capacity: c.capacity,
+    fuelType: c.fuelType,
+    notes: c.notes,
+    fills: canisterFills
+      .filter((f) => f.canisterId === c.id)
+      .map((f) => ({
+        date: f.date.toISOString(),
+        liters: f.liters,
+        pricePerUnit: f.pricePerUnit,
+        totalCost: f.totalCost,
+        station: f.station,
+        notes: f.notes,
+      })),
+  }));
+
   const manifest = {
     format: FORMAT,
     version: VERSION,
@@ -161,6 +194,7 @@ export async function exportVehicleZip(
     },
     cover,
     animation,
+    canisters,
     fuelEntries: v.fuelEntries.map((f) => ({
       date: f.date.toISOString(),
       odometer: f.odometer,
@@ -170,6 +204,8 @@ export async function exportVehicleZip(
       isFullTank: f.isFullTank,
       station: f.station,
       notes: f.notes,
+      kind: f.kind,
+      canister: f.canisterId ?? null,
     })),
     odometerEntries: v.odometerEntries.map((o) => ({
       date: o.date.toISOString(),
@@ -209,6 +245,29 @@ const manifestSchema = z.object({
   animation: z
     .object({ status: z.string().optional(), video: imageRef.nullish(), poster: imageRef.nullish() })
     .nullish(),
+  canisters: z
+    .array(
+      z.object({
+        key: z.string(),
+        name: z.string().min(1).max(120),
+        capacity: num.positive(),
+        fuelType: z.enum(["PETROL", "DIESEL", "ELECTRIC", "HYBRID", "LPG"]).nullish(),
+        notes: z.string().nullish(),
+        fills: z
+          .array(
+            z.object({
+              date: z.string(),
+              liters: num,
+              pricePerUnit: num,
+              totalCost: num,
+              station: z.string().nullish(),
+              notes: z.string().nullish(),
+            })
+          )
+          .default([]),
+      })
+    )
+    .default([]),
   fuelEntries: z
     .array(
       z.object({
@@ -220,6 +279,8 @@ const manifestSchema = z.object({
         isFullTank: z.boolean().default(true),
         station: z.string().nullish(),
         notes: z.string().nullish(),
+        kind: z.enum(["CAR", "CANISTER"]).default("CAR"),
+        canister: z.string().nullish(),
       })
     )
     .default([]),
@@ -335,6 +396,35 @@ export async function importVehicleZip(
     },
   });
 
+  // Recreate referenced canisters (user-level) + their fills, mapping the
+  // export keys to fresh ids so the pours below can link to them.
+  const canisterIdByKey = new Map<string, string>();
+  for (const c of manifest.canisters) {
+    const created = await db.canister.create({
+      data: {
+        userId,
+        name: c.name,
+        capacity: c.capacity,
+        fuelType: c.fuelType ?? null,
+        notes: c.notes ?? null,
+      },
+    });
+    canisterIdByKey.set(c.key, created.id);
+    if (c.fills.length) {
+      await db.canisterFill.createMany({
+        data: c.fills.map((f) => ({
+          canisterId: created.id,
+          date: new Date(f.date),
+          liters: f.liters,
+          pricePerUnit: f.pricePerUnit,
+          totalCost: f.totalCost,
+          station: f.station ?? null,
+          notes: f.notes ?? null,
+        })),
+      });
+    }
+  }
+
   if (manifest.fuelEntries.length) {
     await db.fuelEntry.createMany({
       data: manifest.fuelEntries.map((f) => ({
@@ -347,6 +437,8 @@ export async function importVehicleZip(
         isFullTank: f.isFullTank,
         station: f.station ?? null,
         notes: f.notes ?? null,
+        kind: f.kind,
+        canisterId: f.canister ? canisterIdByKey.get(f.canister) ?? null : null,
       })),
     });
   }
