@@ -1,9 +1,11 @@
 import { requireUser, vehicleAccessWhere, getVehicleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
-import { createRepairAction, deleteRepairAction } from "@/actions/entries";
+import { createRepairAction, updateRepairAction, deleteRepairAction } from "@/actions/entries";
 import { RepairForm } from "@/components/forms/entry-forms";
 import { DeleteButton } from "@/components/delete-button";
+import { EditableRow } from "@/components/editable-row";
 import { BeforeAfter } from "@/components/before-after";
+import { AttachmentList } from "@/components/attachment-list";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate, formatKm } from "@/lib/utils";
@@ -31,8 +33,9 @@ export default async function RepairsPage({
   });
   if (!vehicle) return null;
 
+  const repairIds = vehicle.repairEntries.map((r) => r.id);
   const images = await db.image.findMany({
-    where: { repairId: { in: vehicle.repairEntries.map((r) => r.id) } },
+    where: { repairId: { in: repairIds } },
     select: { id: true, repairId: true, kind: true },
     orderBy: { createdAt: "asc" },
   });
@@ -42,6 +45,19 @@ export default async function RepairsPage({
     const m = imageMap.get(im.repairId) ?? { before: [], after: [] };
     (im.kind === "BEFORE" ? m.before : m.after).push(im.id);
     imageMap.set(im.repairId, m);
+  }
+
+  const attachments = await db.attachment.findMany({
+    where: { repairId: { in: repairIds } },
+    select: { id: true, repairId: true, fileName: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const attachmentMap = new Map<string, { id: string; fileName: string }[]>();
+  for (const a of attachments) {
+    if (!a.repairId) continue;
+    const list = attachmentMap.get(a.repairId) ?? [];
+    list.push({ id: a.id, fileName: a.fileName });
+    attachmentMap.set(a.repairId, list);
   }
 
   return (
@@ -67,12 +83,35 @@ export default async function RepairsPage({
               Noch keine Einträge.
             </p>
           )}
-          {vehicle.repairEntries.map((r) => (
-            <div
-              key={r.id}
-              className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-background/40 p-3"
-            >
-              <div className="min-w-0">
+          {vehicle.repairEntries.map((r) => {
+            const entryAttachments = attachmentMap.get(r.id) ?? [];
+            return (
+              <EditableRow
+                key={r.id}
+                meta={<span className="font-medium">{formatCurrency(r.cost)}</span>}
+                edit={
+                  canEdit ? (
+                    <RepairForm
+                      action={updateRepairAction.bind(null, id, r.id)}
+                      defaults={{
+                        date: r.date.toISOString().slice(0, 10),
+                        category: r.category,
+                        title: r.title,
+                        cost: r.cost,
+                        odometer: r.odometer,
+                        workshop: r.workshop,
+                        description: r.description,
+                        attachments: entryAttachments,
+                      }}
+                    />
+                  ) : undefined
+                }
+                deleteButton={
+                  canEdit ? (
+                    <DeleteButton action={deleteRepairAction.bind(null, id, r.id)} />
+                  ) : undefined
+                }
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{r.title}</span>
                   <Badge variant="secondary">{categoryLabel[r.category]}</Badge>
@@ -89,15 +128,10 @@ export default async function RepairsPage({
                   before={imageMap.get(r.id)?.before ?? []}
                   after={imageMap.get(r.id)?.after ?? []}
                 />
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{formatCurrency(r.cost)}</span>
-                {canEdit && (
-                  <DeleteButton action={deleteRepairAction.bind(null, id, r.id)} />
-                )}
-              </div>
-            </div>
-          ))}
+                <AttachmentList attachments={entryAttachments} />
+              </EditableRow>
+            );
+          })}
         </CardContent>
       </Card>
     </div>

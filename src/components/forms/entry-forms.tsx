@@ -1,6 +1,8 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
+import { Save, Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InputUnit } from "@/components/ui/input-unit";
 import { Label } from "@/components/ui/label";
@@ -11,15 +13,31 @@ import { AlertMessage } from "@/components/ui/alert-message";
 import { OdometerCapture } from "@/components/forms/odometer-capture";
 import { FuelPumpCapture } from "@/components/forms/fuel-pump-capture";
 import { MultiImagePicker } from "@/components/forms/multi-image-picker";
+import {
+  MultiFilePicker,
+  type ExistingAttachment,
+} from "@/components/forms/multi-file-picker";
+import { useFormDraft } from "@/components/forms/use-form-draft";
 
-function BeforeAfterImages() {
+function BeforeAfterImages({ editing = false }: { editing?: boolean }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <MultiImagePicker name="beforeImages" label="Vorher-Bilder" />
-      <MultiImagePicker name="afterImages" label="Nachher-Bilder" />
+    <div className="space-y-2">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <MultiImagePicker name="beforeImages" label="Vorher-Bilder" />
+        <MultiImagePicker name="afterImages" label="Nachher-Bilder" />
+      </div>
+      {editing && (
+        <p className="text-xs text-muted-foreground">
+          Bereits gespeicherte Bilder bleiben erhalten; hier ausgewählte Bilder
+          werden ergänzt.
+        </p>
+      )}
     </div>
   );
 }
+
+const toDateInput = (d: Date | string) =>
+  (typeof d === "string" ? new Date(d) : d).toISOString().slice(0, 10);
 
 type State = { error?: string; success?: string };
 type Action = (prev: State, formData: FormData) => Promise<State>;
@@ -47,38 +65,165 @@ const num = (s: string) => {
 };
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
+export type FuelDefaults = {
+  date: string;
+  odometer: number;
+  amount: number;
+  pricePerUnit: number;
+  totalCost: number;
+  isFullTank: boolean;
+  station: string | null;
+  notes: string | null;
+};
+
+type FuelDraft = {
+  date: string;
+  odometer: string;
+  amount: string;
+  price: string;
+  total: string;
+  totalEdited: boolean;
+  station: string;
+  notes: string;
+  isFullTank: boolean;
+  withCan: boolean;
+  litersById: Record<string, string>;
+};
+
 export function FuelForm({
   action,
   unit,
   canisters = [],
+  defaults,
+  onDone,
+  vehicleId,
 }: {
   action: Action;
   unit: "L" | "kWh";
   canisters?: { id: string; name: string; capacity: number; currentLiters: number }[];
+  defaults?: FuelDefaults;
+  onDone?: () => void;
+  // Enables the "Zwischenspeichern" draft feature (create mode only).
+  vehicleId?: string;
 }) {
-  const [odometer, setOdometer] = useState("");
-  const [price, setPrice] = useState("");
+  const editing = !!defaults;
+  const [date, setDate] = useState(defaults ? defaults.date : today());
+  const [odometer, setOdometer] = useState(defaults ? String(defaults.odometer) : "");
+  const [price, setPrice] = useState(defaults ? String(defaults.pricePerUnit) : "");
   // "Menge" = what came out of the pump. Without canisters this is what goes
   // into the car; with canisters it's the total to be split (car gets the rest).
-  const [amount, setAmount] = useState("");
-  const [total, setTotal] = useState("");
+  const [amount, setAmount] = useState(defaults ? String(defaults.amount) : "");
+  const [total, setTotal] = useState(defaults ? String(defaults.totalCost) : "");
+  // total auto-calculates from amount × price until the user overrides it.
   const [totalEdited, setTotalEdited] = useState(false);
+  const [station, setStation] = useState(defaults?.station ?? "");
+  const [notes, setNotes] = useState(defaults?.notes ?? "");
+  const [isFullTank, setIsFullTank] = useState(defaults ? defaults.isFullTank : true);
   const [withCan, setWithCan] = useState(false);
   const [litersById, setLitersById] = useState<Record<string, string>>({});
 
-  const { state, formAction, ref } = useResettingAction(action, () => {
+  // Draft persistence: keyed per vehicle, disabled while editing an entry.
+  const { restored, save, clear } = useFormDraft<FuelDraft>(
+    !editing && vehicleId ? `fuel:${vehicleId}` : null
+  );
+  const [draftMsg, setDraftMsg] = useState<string | null>(null);
+
+  function resetFields() {
+    setDate(today());
     setOdometer("");
     setPrice("");
     setAmount("");
     setTotal("");
     setTotalEdited(false);
+    setStation("");
+    setNotes("");
+    setIsFullTank(true);
     setWithCan(false);
     setLitersById({});
+  }
+
+  const { state, formAction, ref } = useResettingAction(action, onDone ?? (() => {
+    resetFields();
+    clear();
+    setDraftMsg(null);
+  }));
+
+  // Re-hydrate a saved draft once, after mount.
+  const draftApplied = useRef(false);
+  useEffect(() => {
+    if (!restored || draftApplied.current) return;
+    draftApplied.current = true;
+    setDate(restored.date || today());
+    setOdometer(restored.odometer ?? "");
+    setPrice(restored.price ?? "");
+    setAmount(restored.amount ?? "");
+    setTotal(restored.total ?? "");
+    setTotalEdited(restored.totalEdited ?? false);
+    setStation(restored.station ?? "");
+    setNotes(restored.notes ?? "");
+    setIsFullTank(restored.isFullTank ?? true);
+    setWithCan(restored.withCan ?? false);
+    setLitersById(restored.litersById ?? {});
+    setDraftMsg("Zwischengespeicherten Entwurf wiederhergestellt.");
+  }, [restored]);
+
+  const collectDraft = (): FuelDraft => ({
+    date,
+    odometer,
+    amount,
+    price,
+    total,
+    totalEdited,
+    station,
+    notes,
+    isFullTank,
+    withCan,
+    litersById,
   });
 
-  // Simple mode: total = amount × price (unless overridden).
+  // Keep the latest values reachable from the visibility listener without
+  // re-binding it on every keystroke.
+  const draftRef = useRef(collectDraft());
+  draftRef.current = collectDraft();
+
+  // Safety net: also persist when the tab is hidden / the app is backgrounded
+  // (e.g. screen lock while paying), so nothing is lost even without a click.
+  useEffect(() => {
+    if (editing || !vehicleId) return;
+    const onHide = () => {
+      if (document.visibilityState === "hidden") {
+        const d = draftRef.current;
+        const hasContent = d.odometer || d.amount || d.price || d.total || d.station || d.notes;
+        if (hasContent) save(d);
+      }
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, [editing, vehicleId, save]);
+
+  function saveDraft() {
+    save(collectDraft());
+    const t = new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+    setDraftMsg(`Zwischengespeichert um ${t} Uhr.`);
+  }
+
+  function discardDraft() {
+    clear();
+    // Also empty the form so the visibility autosave below can't re-persist it.
+    resetFields();
+    setDraftMsg(null);
+  }
+
+  // total = amount × price, unless the user typed a total or split across
+  // canisters. In edit mode the first run is skipped so the stored total stays
+  // until the user actually changes the amount or price.
+  const skipFirstAuto = useRef(editing);
   useEffect(() => {
     if (withCan || totalEdited) return;
+    if (skipFirstAuto.current) {
+      skipFirstAuto.current = false;
+      return;
+    }
     const a = parseFloat(amount.replace(",", "."));
     const p = parseFloat(price.replace(",", "."));
     if (!isNaN(a) && !isNaN(p)) setTotal((a * p).toFixed(2));
@@ -195,7 +340,7 @@ export function FuelForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="date">Datum *</Label>
-          <Input id="date" name="date" type="date" required defaultValue={today()} />
+          <Input id="date" name="date" type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="odometer">Kilometerstand *</Label>
@@ -228,28 +373,69 @@ export function FuelForm({
 
         <div className="space-y-2">
           <Label htmlFor="station">Tankstelle</Label>
-          <Input id="station" name="station" placeholder="z. B. Aral" />
+          <Input id="station" name="station" placeholder="z. B. Aral" value={station} onChange={(e) => setStation(e.target.value)} />
         </div>
       </div>
 
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="isFullTank" defaultChecked className="size-4 accent-[hsl(38_92%_55%)]" />
+        <input type="checkbox" name="isFullTank" checked={isFullTank} onChange={(e) => setIsFullTank(e.target.checked)} className="size-4 accent-[hsl(38_92%_55%)]" />
         Volltankung (für Verbrauchsberechnung)
       </label>
       <div className="space-y-2">
         <Label htmlFor="notes">Notizen</Label>
-        <Textarea id="notes" name="notes" />
+        <Textarea id="notes" name="notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
 
-      <SubmitButton>Tankung hinzufügen</SubmitButton>
+      {!editing && vehicleId && (
+        <div className="space-y-2">
+          <SubmitButton className="w-full">Tankung hinzufügen</SubmitButton>
+          <Button type="button" variant="outline" onClick={saveDraft} className="w-full">
+            <Save className="mr-2 size-4" />
+            Zwischenspeichern
+          </Button>
+          {draftMsg && (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Check className="size-3.5 text-[hsl(142_70%_45%)]" />
+              {draftMsg}
+              <button type="button" onClick={discardDraft} className="underline hover:text-foreground">
+                Verwerfen
+              </button>
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Speichert deine Eingaben auf diesem Gerät zwischen – z. B. während du
+            bezahlen gehst. Beim Speichern der Tankung wird der Entwurf gelöscht.
+          </p>
+        </div>
+      )}
+
+      {(editing || !vehicleId) && (
+        <SubmitButton>{editing ? "Speichern" : "Tankung hinzufügen"}</SubmitButton>
+      )}
     </form>
   );
 }
 
-export function OdometerForm({ action }: { action: Action }) {
-  const [odometer, setOdometer] = useState("");
-  const { state, formAction, ref } = useResettingAction(action, () =>
-    setOdometer("")
+export type OdometerDefaults = {
+  date: string;
+  odometer: number;
+  note: string | null;
+};
+
+export function OdometerForm({
+  action,
+  defaults,
+  onDone,
+}: {
+  action: Action;
+  defaults?: OdometerDefaults;
+  onDone?: () => void;
+}) {
+  const editing = !!defaults;
+  const [odometer, setOdometer] = useState(defaults ? String(defaults.odometer) : "");
+  const { state, formAction, ref } = useResettingAction(
+    action,
+    onDone ?? (() => setOdometer(""))
   );
 
   return (
@@ -259,7 +445,7 @@ export function OdometerForm({ action }: { action: Action }) {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="date">Datum *</Label>
-          <Input id="date" name="date" type="date" required defaultValue={today()} />
+          <Input id="date" name="date" type="date" required defaultValue={defaults ? defaults.date : today()} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="odometer">Kilometerstand *</Label>
@@ -277,26 +463,46 @@ export function OdometerForm({ action }: { action: Action }) {
       </div>
       <div className="space-y-2">
         <Label htmlFor="note">Notiz</Label>
-        <Input id="note" name="note" />
+        <Input id="note" name="note" defaultValue={defaults?.note ?? ""} />
       </div>
-      <SubmitButton>Eintrag hinzufügen</SubmitButton>
+      <SubmitButton>{editing ? "Speichern" : "Eintrag hinzufügen"}</SubmitButton>
     </form>
   );
 }
 
-export function RepairForm({ action }: { action: Action }) {
-  const { state, formAction, ref } = useResettingAction(action);
+export type RepairDefaults = {
+  date: string;
+  category: string;
+  title: string;
+  cost: number;
+  odometer: number | null;
+  workshop: string | null;
+  description: string | null;
+  attachments: ExistingAttachment[];
+};
+
+export function RepairForm({
+  action,
+  defaults,
+  onDone,
+}: {
+  action: Action;
+  defaults?: RepairDefaults;
+  onDone?: () => void;
+}) {
+  const editing = !!defaults;
+  const { state, formAction, ref } = useResettingAction(action, onDone);
   return (
     <form ref={ref} action={formAction} className="space-y-4">
       <AlertMessage error={state.error} success={state.success} />
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="date">Datum *</Label>
-          <Input id="date" name="date" type="date" required defaultValue={today()} />
+          <Input id="date" name="date" type="date" required defaultValue={defaults ? defaults.date : today()} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="category">Kategorie</Label>
-          <Select id="category" name="category" defaultValue="REPAIR">
+          <Select id="category" name="category" defaultValue={defaults?.category ?? "REPAIR"}>
             <option value="REPAIR">Reparatur</option>
             <option value="SERVICE">Inspektion / Service</option>
             <option value="INSPECTION">HU / AU (TÜV)</option>
@@ -306,44 +512,67 @@ export function RepairForm({ action }: { action: Action }) {
         </div>
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="title">Titel *</Label>
-          <Input id="title" name="title" required placeholder="z. B. Bremsbeläge vorne" />
+          <Input id="title" name="title" required placeholder="z. B. Bremsbeläge vorne" defaultValue={defaults?.title ?? ""} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="cost">Kosten</Label>
-          <InputUnit id="cost" name="cost" type="number" step="0.01" min={0} defaultValue={0} unit="€" />
+          <InputUnit id="cost" name="cost" type="number" step="0.01" min={0} defaultValue={defaults?.cost ?? 0} unit="€" />
         </div>
         <div className="space-y-2">
           <Label htmlFor="odometer">Kilometerstand</Label>
-          <InputUnit id="odometer" name="odometer" type="number" min={0} unit="km" />
+          <InputUnit id="odometer" name="odometer" type="number" min={0} unit="km" defaultValue={defaults?.odometer ?? ""} />
         </div>
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="workshop">Werkstatt</Label>
-          <Input id="workshop" name="workshop" />
+          <Input id="workshop" name="workshop" defaultValue={defaults?.workshop ?? ""} />
         </div>
       </div>
       <div className="space-y-2">
         <Label htmlFor="description">Beschreibung</Label>
-        <Textarea id="description" name="description" />
+        <Textarea id="description" name="description" defaultValue={defaults?.description ?? ""} />
       </div>
-      <BeforeAfterImages />
-      <SubmitButton>Eintrag hinzufügen</SubmitButton>
+      <BeforeAfterImages editing={editing} />
+      <MultiFilePicker
+        name="attachments"
+        label="Rechnungen & Belege (PDF, Bild)"
+        existing={defaults?.attachments ?? []}
+      />
+      <SubmitButton>{editing ? "Speichern" : "Eintrag hinzufügen"}</SubmitButton>
     </form>
   );
 }
 
-export function CleaningForm({ action }: { action: Action }) {
-  const { state, formAction, ref } = useResettingAction(action);
+export type CleaningDefaults = {
+  date: string;
+  type: string;
+  cost: number;
+  odometer: number | null;
+  products: string | null;
+  notes: string | null;
+};
+
+export function CleaningForm({
+  action,
+  defaults,
+  onDone,
+}: {
+  action: Action;
+  defaults?: CleaningDefaults;
+  onDone?: () => void;
+}) {
+  const editing = !!defaults;
+  const { state, formAction, ref } = useResettingAction(action, onDone);
   return (
     <form ref={ref} action={formAction} className="space-y-4">
       <AlertMessage error={state.error} success={state.success} />
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="date">Datum *</Label>
-          <Input id="date" name="date" type="date" required defaultValue={today()} />
+          <Input id="date" name="date" type="date" required defaultValue={defaults ? defaults.date : today()} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="type">Art</Label>
-          <Select id="type" name="type" defaultValue="FULL">
+          <Select id="type" name="type" defaultValue={defaults?.type ?? "FULL"}>
             <option value="FULL">Komplett</option>
             <option value="EXTERIOR">Außen</option>
             <option value="INTERIOR">Innen</option>
@@ -351,23 +580,23 @@ export function CleaningForm({ action }: { action: Action }) {
         </div>
         <div className="space-y-2">
           <Label htmlFor="cost">Kosten</Label>
-          <InputUnit id="cost" name="cost" type="number" step="0.01" min={0} defaultValue={0} unit="€" />
+          <InputUnit id="cost" name="cost" type="number" step="0.01" min={0} defaultValue={defaults?.cost ?? 0} unit="€" />
         </div>
         <div className="space-y-2">
           <Label htmlFor="odometer">Kilometerstand</Label>
-          <InputUnit id="odometer" name="odometer" type="number" min={0} unit="km" />
+          <InputUnit id="odometer" name="odometer" type="number" min={0} unit="km" defaultValue={defaults?.odometer ?? ""} />
         </div>
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="products">Verwendete Produkte</Label>
-          <Input id="products" name="products" placeholder="z. B. Hartwachs, Felgenreiniger" />
+          <Input id="products" name="products" placeholder="z. B. Hartwachs, Felgenreiniger" defaultValue={defaults?.products ?? ""} />
         </div>
       </div>
       <div className="space-y-2">
         <Label htmlFor="notes">Notizen</Label>
-        <Textarea id="notes" name="notes" />
+        <Textarea id="notes" name="notes" defaultValue={defaults?.notes ?? ""} />
       </div>
-      <BeforeAfterImages />
-      <SubmitButton>Eintrag hinzufügen</SubmitButton>
+      <BeforeAfterImages editing={editing} />
+      <SubmitButton>{editing ? "Speichern" : "Eintrag hinzufügen"}</SubmitButton>
     </form>
   );
 }

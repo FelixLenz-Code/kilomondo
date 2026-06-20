@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireUser, getVehicleAccess } from "@/lib/auth/guards";
 import { saveEntryImages } from "@/lib/images";
+import {
+  saveRepairAttachments,
+  syncRepairAttachments,
+  deleteRepairAttachments,
+} from "@/lib/attachments";
 import { canisterState, round2 } from "@/lib/canister";
 import {
   fuelSchema,
@@ -94,6 +99,38 @@ export async function createFuelAction(
   };
 }
 
+export async function updateFuelAction(
+  vehicleId: string,
+  id: string,
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  await assertCanEdit(vehicleId);
+  const parsed = fuelSchema.safeParse({
+    date: formData.get("date"),
+    odometer: formData.get("odometer"),
+    amount: formData.get("amount"),
+    pricePerUnit: formData.get("pricePerUnit"),
+    totalCost: formData.get("totalCost"),
+    isFullTank: formData.get("isFullTank") === "on" || formData.get("isFullTank") === "true",
+    station: formData.get("station"),
+    notes: formData.get("notes"),
+  });
+  if (!parsed.success) return fail(parsed);
+
+  // Only the core fuel fields are editable here; any linked canister fills are
+  // left untouched (manage those via the canister panel).
+  const { count } = await db.fuelEntry.updateMany({
+    where: { id, vehicleId },
+    data: parsed.data,
+  });
+  if (count === 0) return { error: "Eintrag nicht gefunden." };
+
+  revalidatePath(`/vehicles/${vehicleId}/fuel`);
+  revalidatePath(`/vehicles/${vehicleId}`);
+  return { success: "Tankung aktualisiert." };
+}
+
 export async function deleteFuelAction(vehicleId: string, id: string) {
   await assertCanEdit(vehicleId);
   await db.fuelEntry.deleteMany({ where: { id, vehicleId } });
@@ -120,6 +157,31 @@ export async function createOdometerAction(
   revalidatePath(`/vehicles/${vehicleId}/mileage`);
   revalidatePath(`/vehicles/${vehicleId}`);
   return { success: "Kilometerstand gespeichert." };
+}
+
+export async function updateOdometerAction(
+  vehicleId: string,
+  id: string,
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  await assertCanEdit(vehicleId);
+  const parsed = odometerSchema.safeParse({
+    date: formData.get("date"),
+    odometer: formData.get("odometer"),
+    note: formData.get("note"),
+  });
+  if (!parsed.success) return fail(parsed);
+
+  const { count } = await db.odometerEntry.updateMany({
+    where: { id, vehicleId },
+    data: parsed.data,
+  });
+  if (count === 0) return { error: "Eintrag nicht gefunden." };
+
+  revalidatePath(`/vehicles/${vehicleId}/mileage`);
+  revalidatePath(`/vehicles/${vehicleId}`);
+  return { success: "Kilometerstand aktualisiert." };
 }
 
 export async function deleteOdometerAction(vehicleId: string, id: string) {
@@ -160,15 +222,60 @@ export async function createRepairAction(
     repairId: repair.id,
     kind: "AFTER",
   });
+  await saveRepairAttachments(
+    formData.getAll("attachments"),
+    formData.getAll("attachmentsNames"),
+    repair.id
+  );
   revalidatePath(`/vehicles/${vehicleId}/repairs`);
   revalidatePath(`/vehicles/${vehicleId}`);
   return { success: "Eintrag gespeichert." };
+}
+
+export async function updateRepairAction(
+  vehicleId: string,
+  id: string,
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  await assertCanEdit(vehicleId);
+  const parsed = repairSchema.safeParse({
+    date: formData.get("date"),
+    odometer: formData.get("odometer"),
+    title: formData.get("title"),
+    description: formData.get("description"),
+    category: formData.get("category"),
+    cost: formData.get("cost"),
+    workshop: formData.get("workshop"),
+    notes: formData.get("notes"),
+  });
+  if (!parsed.success) return fail(parsed);
+
+  // Scope the update to the vehicle so a stale/forged id can't touch another car.
+  const { count } = await db.repairEntry.updateMany({
+    where: { id, vehicleId },
+    data: parsed.data,
+  });
+  if (count === 0) return { error: "Eintrag nicht gefunden." };
+
+  await saveEntryImages(formData.getAll("beforeImages"), { repairId: id, kind: "BEFORE" });
+  await saveEntryImages(formData.getAll("afterImages"), { repairId: id, kind: "AFTER" });
+  await syncRepairAttachments(
+    id,
+    formData.getAll("keepAttachments").map(String),
+    formData.getAll("attachments"),
+    formData.getAll("attachmentsNames")
+  );
+  revalidatePath(`/vehicles/${vehicleId}/repairs`);
+  revalidatePath(`/vehicles/${vehicleId}`);
+  return { success: "Eintrag aktualisiert." };
 }
 
 export async function deleteRepairAction(vehicleId: string, id: string) {
   await assertCanEdit(vehicleId);
   await db.repairEntry.deleteMany({ where: { id, vehicleId } });
   await db.image.deleteMany({ where: { repairId: id } });
+  await deleteRepairAttachments(id);
   revalidatePath(`/vehicles/${vehicleId}/repairs`);
   revalidatePath(`/vehicles/${vehicleId}`);
 }
@@ -205,6 +312,36 @@ export async function createCleaningAction(
   revalidatePath(`/vehicles/${vehicleId}/cleaning`);
   revalidatePath(`/vehicles/${vehicleId}`);
   return { success: "Eintrag gespeichert." };
+}
+
+export async function updateCleaningAction(
+  vehicleId: string,
+  id: string,
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  await assertCanEdit(vehicleId);
+  const parsed = cleaningSchema.safeParse({
+    date: formData.get("date"),
+    odometer: formData.get("odometer"),
+    type: formData.get("type"),
+    cost: formData.get("cost"),
+    products: formData.get("products"),
+    notes: formData.get("notes"),
+  });
+  if (!parsed.success) return fail(parsed);
+
+  const { count } = await db.cleaningEntry.updateMany({
+    where: { id, vehicleId },
+    data: parsed.data,
+  });
+  if (count === 0) return { error: "Eintrag nicht gefunden." };
+
+  await saveEntryImages(formData.getAll("beforeImages"), { cleaningId: id, kind: "BEFORE" });
+  await saveEntryImages(formData.getAll("afterImages"), { cleaningId: id, kind: "AFTER" });
+  revalidatePath(`/vehicles/${vehicleId}/cleaning`);
+  revalidatePath(`/vehicles/${vehicleId}`);
+  return { success: "Eintrag aktualisiert." };
 }
 
 export async function deleteCleaningAction(vehicleId: string, id: string) {

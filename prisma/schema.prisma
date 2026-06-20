@@ -76,6 +76,20 @@ model Image {
   @@index([cleaningId])
 }
 
+// A file (invoice, report, …) attached to a repair entry. Stored inline like
+// Image; the link is by id only (no FK), so deletes are handled in app code.
+model Attachment {
+  id        String   @id @default(cuid())
+  mimeType  String
+  fileName  String
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
+  repairId  String?
+
+  @@index([repairId])
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique

@@ -1,8 +1,9 @@
 import { requireUser, vehicleAccessWhere, getVehicleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
-import { createOdometerAction, deleteOdometerAction } from "@/actions/entries";
+import { createOdometerAction, updateOdometerAction, deleteOdometerAction } from "@/actions/entries";
 import { OdometerForm } from "@/components/forms/entry-forms";
 import { DeleteButton } from "@/components/delete-button";
+import { EditableRow } from "@/components/editable-row";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate, formatKm } from "@/lib/utils";
 
@@ -45,21 +46,33 @@ export default async function MileagePage({
             </p>
           )}
           {vehicle.odometerEntries.map((o) => (
-            <div
+            <EditableRow
               key={o.id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-background/40 p-3"
+              align="center"
+              edit={
+                canEdit ? (
+                  <OdometerForm
+                    action={updateOdometerAction.bind(null, id, o.id)}
+                    defaults={{
+                      date: o.date.toISOString().slice(0, 10),
+                      odometer: o.odometer,
+                      note: o.note,
+                    }}
+                  />
+                ) : undefined
+              }
+              deleteButton={
+                canEdit ? (
+                  <DeleteButton action={deleteOdometerAction.bind(null, id, o.id)} />
+                ) : undefined
+              }
             >
-              <div>
-                <span className="font-medium">{formatKm(o.odometer)}</span>
-                <p className="text-sm text-muted-foreground">
-                  {formatDate(o.date)}
-                  {o.note ? ` · ${o.note}` : ""}
-                </p>
-              </div>
-              {canEdit && (
-                <DeleteButton action={deleteOdometerAction.bind(null, id, o.id)} />
-              )}
-            </div>
+              <span className="font-medium">{formatKm(o.odometer)}</span>
+              <p className="text-sm text-muted-foreground">
+                {formatDate(o.date)}
+                {o.note ? ` · ${o.note}` : ""}
+              </p>
+            </EditableRow>
           ))}
         </CardContent>
       </Card>

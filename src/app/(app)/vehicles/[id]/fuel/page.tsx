@@ -2,11 +2,12 @@ import { requireUser, vehicleAccessWhere, getVehicleAccess } from "@/lib/auth/gu
 import { db } from "@/lib/db";
 import { fuelUnit } from "@/lib/stats";
 import { canisterState } from "@/lib/canister";
-import { createFuelAction, deleteFuelAction } from "@/actions/entries";
+import { createFuelAction, updateFuelAction, deleteFuelAction } from "@/actions/entries";
 import { createCanisterPourAction } from "@/actions/canisters";
 import { FuelForm, CanisterPourForm } from "@/components/forms/entry-forms";
 import { CanisterPanel, type CanisterView } from "@/components/canister-panel";
 import { DeleteButton } from "@/components/delete-button";
+import { EditableRow } from "@/components/editable-row";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate, formatKm, formatNumber } from "@/lib/utils";
@@ -65,6 +66,7 @@ export default async function FuelPage({
               <FuelForm
                 action={createFuelAction.bind(null, id)}
                 unit={unit}
+                vehicleId={id}
                 canisters={canisters.map((c) => ({
                   id: c.id,
                   name: c.name,
@@ -112,36 +114,52 @@ export default async function FuelPage({
             </p>
           )}
           {vehicle.fuelEntries.map((f) => (
-            <div
+            <EditableRow
               key={f.id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-background/40 p-3"
-            >
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{formatDate(f.date)}</span>
-                  <span className="text-sm text-muted-foreground">{formatKm(f.odometer)}</span>
-                  {f.kind === "CANISTER" && (
-                    <Badge variant="secondary">
-                      Kanister
-                      {f.canisterId && canisterName.has(f.canisterId)
-                        ? `: ${canisterName.get(f.canisterId)}`
-                        : ""}
-                    </Badge>
-                  )}
-                  {f.isFullTank && <Badge variant="secondary">Voll</Badge>}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {formatNumber(f.amount, 2)} {unit}
-                  {f.station ? ` · ${f.station}` : ""}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{formatCurrency(f.totalCost)}</span>
-                {canEdit && (
+              align="center"
+              meta={<span className="font-medium">{formatCurrency(f.totalCost)}</span>}
+              edit={
+                canEdit ? (
+                  <FuelForm
+                    action={updateFuelAction.bind(null, id, f.id)}
+                    unit={unit}
+                    defaults={{
+                      date: f.date.toISOString().slice(0, 10),
+                      odometer: f.odometer,
+                      amount: f.amount,
+                      pricePerUnit: f.pricePerUnit,
+                      totalCost: f.totalCost,
+                      isFullTank: f.isFullTank,
+                      station: f.station,
+                      notes: f.notes,
+                    }}
+                  />
+                ) : undefined
+              }
+              deleteButton={
+                canEdit ? (
                   <DeleteButton action={deleteFuelAction.bind(null, id, f.id)} />
+                ) : undefined
+              }
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{formatDate(f.date)}</span>
+                <span className="text-sm text-muted-foreground">{formatKm(f.odometer)}</span>
+                {f.kind === "CANISTER" && (
+                  <Badge variant="secondary">
+                    Kanister
+                    {f.canisterId && canisterName.has(f.canisterId)
+                      ? `: ${canisterName.get(f.canisterId)}`
+                      : ""}
+                  </Badge>
                 )}
+                {f.isFullTank && <Badge variant="secondary">Voll</Badge>}
               </div>
-            </div>
+              <p className="text-sm text-muted-foreground">
+                {formatNumber(f.amount, 2)} {unit}
+                {f.station ? ` · ${f.station}` : ""}
+              </p>
+            </EditableRow>
           ))}
         </CardContent>
       </Card>
