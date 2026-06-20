@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { sendPushToUser } from "@/lib/push";
+import { backfillLogRemindersOnce } from "@/lib/reminder-suggestions";
 import { formatDate } from "@/lib/utils";
 
 const KM_LEAD = 500; // notify when within this many km of a mileage due
@@ -123,7 +124,11 @@ export async function runDueReminders(now = new Date()): Promise<number> {
 export function startReminderScheduler(): void {
   const g = globalThis as unknown as { __carlogReminderTimer?: NodeJS.Timeout };
   if (g.__carlogReminderTimer) return;
-  // First check shortly after startup, then hourly.
-  setTimeout(() => void runDueReminders().catch(() => {}), 30_000);
+  // Shortly after startup: backfill default LOG reminders (once), then check.
+  setTimeout(() => {
+    void backfillLogRemindersOnce()
+      .then(() => runDueReminders())
+      .catch(() => {});
+  }, 30_000);
   g.__carlogReminderTimer = setInterval(() => void runDueReminders().catch(() => {}), HOUR);
 }

@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, getVehicleAccess } from "@/lib/auth/guards";
 import { notifyOwnerOfActivity } from "@/lib/notify";
+import { syncInspectionReminder } from "@/lib/reminder-suggestions";
 import { saveEntryImages } from "@/lib/images";
 import {
   saveRepairAttachments,
@@ -262,6 +263,12 @@ export async function createRepairAction(
     formData.getAll("attachmentsNames"),
     repair.id
   );
+  // A logged HU/AU entry auto-creates/refreshes the HU/AU reminder (next due
+  // = inspection date + 24 months).
+  if (parsed.data.category === "INSPECTION") {
+    await syncInspectionReminder(vehicleId);
+    revalidatePath(`/vehicles/${vehicleId}/reminders`);
+  }
   revalidatePath(`/vehicles/${vehicleId}/repairs`);
   revalidatePath(`/vehicles/${vehicleId}`);
   notifyActivity(meta, vehicleId, `hat „${parsed.data.title}" ins Reparaturbuch eingetragen`, `/vehicles/${vehicleId}/repairs`);
@@ -302,6 +309,10 @@ export async function updateRepairAction(
     formData.getAll("attachments"),
     formData.getAll("attachmentsNames")
   );
+  if (parsed.data.category === "INSPECTION") {
+    await syncInspectionReminder(vehicleId);
+    revalidatePath(`/vehicles/${vehicleId}/reminders`);
+  }
   revalidatePath(`/vehicles/${vehicleId}/repairs`);
   revalidatePath(`/vehicles/${vehicleId}`);
   return { success: "Eintrag aktualisiert." };

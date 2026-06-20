@@ -9,6 +9,7 @@ import { vehicleSchema } from "@/lib/validation";
 import { saveDataUrlImage, resolveImageUpdate } from "@/lib/images";
 import { readGlbUpload, renderVehicleAnimationJob } from "@/lib/animation";
 import { importVehicleZip } from "@/lib/vehicle-transfer";
+import { ensureLogReminder } from "@/lib/reminder-suggestions";
 
 export type ActionState = { error?: string };
 
@@ -59,6 +60,8 @@ export async function createVehicleAction(
     const buf = glb;
     after(() => renderVehicleAnimationJob(vehicle.id, buf, { videoId: null, posterId: null }));
   }
+  // Activate the default "don't forget to log" reminder for the new vehicle.
+  await ensureLogReminder(vehicle.id);
   revalidatePath("/");
   redirect(`/vehicles/${vehicle.id}`);
 }

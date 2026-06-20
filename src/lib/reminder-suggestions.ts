@@ -26,6 +26,83 @@ function nextOccurrence(due: Date, recurrenceMonths: number, now: Date): Date {
   return next;
 }
 
+const LOG_BACKFILL_FLAG = "log_reminder_backfill_done";
+
+/**
+ * Ensure a vehicle has the default "don't forget to log entries" reminder
+ * (notify after 30 days without any entry). No-op if a LOG reminder already
+ * exists, so a deliberately deleted one isn't recreated.
+ */
+export async function ensureLogReminder(vehicleId: string): Promise<void> {
+  const existing = await db.reminder.findFirst({ where: { vehicleId, type: "LOG" } });
+  if (existing) return;
+  await db.reminder.create({
+    data: {
+      vehicleId,
+      type: "LOG",
+      title: "Eintragen nicht vergessen",
+      intervalDays: 30,
+      source: "AUTO",
+    },
+  });
+}
+
+/**
+ * One-time backfill so vehicles created before this feature also get the
+ * default LOG reminder. Guarded by an AppSetting flag so it runs once ever and
+ * never resurrects reminders a user later deletes.
+ */
+export async function backfillLogRemindersOnce(): Promise<void> {
+  const done = await db.appSetting.findUnique({ where: { key: LOG_BACKFILL_FLAG } });
+  if (done) return;
+  const vehicles = await db.vehicle.findMany({ select: { id: true } });
+  for (const v of vehicles) await ensureLogReminder(v.id);
+  await db.appSetting
+    .create({ data: { key: LOG_BACKFILL_FLAG, value: new Date().toISOString() } })
+    .catch(() => {});
+}
+
+/**
+ * Auto-create or refresh the HU/AU reminder from the vehicle's inspection
+ * history (latest INSPECTION entry + 24 months, rolled to the next upcoming
+ * date). Called when an HU/AU repair entry is added or edited. Leaves a
+ * user-created (MANUAL) reminder untouched so it doesn't override manual edits.
+ */
+export async function syncInspectionReminder(vehicleId: string): Promise<void> {
+  const latest = await db.repairEntry.aggregate({
+    where: { vehicleId, category: "INSPECTION" },
+    _max: { date: true },
+  });
+  const lastDate = latest._max.date;
+  if (!lastDate) return;
+
+  const due = nextOccurrence(addMonths(lastDate, 24), 24, new Date());
+  const existing = await db.reminder.findFirst({
+    where: { vehicleId, type: "INSPECTION" },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (existing) {
+    if (existing.source !== "AUTO") return; // respect a manually managed reminder
+    await db.reminder.update({
+      where: { id: existing.id },
+      data: { dueDate: due, recurrenceMonths: 24, active: true, lastNotifiedAt: null },
+    });
+  } else {
+    await db.reminder.create({
+      data: {
+        vehicleId,
+        type: "INSPECTION",
+        title: "HU/AU (TÜV)",
+        dueDate: due,
+        leadDays: 28,
+        recurrenceMonths: 24,
+        source: "AUTO",
+      },
+    });
+  }
+}
+
 /**
  * Estimate due dates from history: HU/AU from the last inspection (+24 months)
  * and the next service from the average interval between past services. Skips a

@@ -2,6 +2,7 @@ import "server-only";
 import JSZip from "jszip";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { ensureLogReminder } from "@/lib/reminder-suggestions";
 
 /**
  * Vehicle export/import as a self-contained ZIP:
@@ -489,5 +490,6 @@ export async function importVehicleZip(
     }
   }
 
+  await ensureLogReminder(vehicle.id);
   return { vehicleId: vehicle.id };
 }
