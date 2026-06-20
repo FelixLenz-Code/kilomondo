@@ -20,6 +20,7 @@
 #   ADMIN_PASSWORD first admin password        (else prompted / generated)
 #   ADMIN_NAME    admin display name           (default: Administrator)
 #   COOKIE_SECURE "true" behind HTTPS          (default: false)
+#   CARLOG_FRESH  "1" = on update, wipe data & settings and set up a fresh server
 #
 set -euo pipefail
 
@@ -184,9 +185,9 @@ cmd_install() {
   require_tools; detect_compose
 
   # If Car-Log is already installed here, a plain install upgrades it instead of
-  # bailing out — so the same one-liner both installs and updates (keeping the
-  # database volume and the existing .env). Use a different CARLOG_DIR for a
-  # second, independent instance.
+  # bailing out — so the same one-liner both installs and updates. The update
+  # path then asks whether to keep your data & settings or start fresh. Use a
+  # different CARLOG_DIR for a second, independent instance.
   if [ -f "$DIR/docker-compose.yml" ] && [ -f "$DIR/.env" ]; then
     info "Existing install detected in ${B}$DIR${N} — running update instead."
     cmd_update "$@"
@@ -217,13 +218,93 @@ cmd_install() {
     info "Behind HTTPS later? Set ${B}COOKIE_SECURE=true${N} in $DIR/.env and re-run update."
 }
 
+# Decide between keeping data/settings or a fresh reset. Sets UPDATE_MODE to
+# "keep" or "fresh". Explicit flags/env win; otherwise ask if interactive,
+# else fall back to the safe "keep".
+choose_update_mode() {
+  if [ "${FRESH:-0}" = 1 ]; then UPDATE_MODE=fresh; return; fi
+  if [ "${KEEP:-0}" = 1 ];  then UPDATE_MODE=keep;  return; fi
+  local tty_ok=0
+  if { : </dev/tty; } 2>/dev/null; then tty_ok=1; fi
+  if [ "$tty_ok" != 1 ]; then UPDATE_MODE=keep; return; fi
+  printf '\n' >/dev/tty
+  printf '%s\n' "${B}How do you want to update?${N}" >/dev/tty
+  printf '  %s1)%s Keep my data and settings (default)\n' "$B" "$N" >/dev/tty
+  printf '  %s2)%s Fresh server — wipe the database AND .env, set up from scratch\n' "$B" "$N" >/dev/tty
+  printf '%s' "Choice [1]: " >/dev/tty
+  local ans; read -r ans </dev/tty || true
+  case "$ans" in 2) UPDATE_MODE=fresh;; *) UPDATE_MODE=keep;; esac
+}
+
+# Guard the destructive fresh reset behind an explicit confirmation (skippable
+# with --yes / non-interactive only via --yes).
+confirm_fresh() {
+  [ "${ASSUME_YES:-0}" = 1 ] && return 0
+  local tty_ok=0
+  if { : </dev/tty; } 2>/dev/null; then tty_ok=1; fi
+  [ "$tty_ok" = 1 ] || die "Fresh reset needs confirmation but no terminal is available. Re-run with ${B}--yes${N}."
+  warn "Fresh reset will DELETE the database volume (all vehicles, fuel-ups, attachments …) AND ${B}$DIR/.env${N} (admin login, secrets)."
+  printf '%s' "${R}Type 'RESET' to confirm:${N} " >/dev/tty
+  local c; read -r c </dev/tty || true
+  [ "$c" = "RESET" ] || die "Aborted — nothing was deleted."
+}
+
+# Wipe data + settings and set up a clean server at $DIR (keeps the directory,
+# so the same install location is reused).
+cmd_update_fresh() {
+  confirm_fresh
+  local new; new=$(resolve_ref)
+  info "Fresh setup at ${B}$DIR${N} → version ${B}$new${N}."
+
+  info "Stopping containers and removing the database volume ..."
+  compose down -v || true
+
+  info "Refreshing code to ${B}$new${N} ..."
+  download_into "$new" "$DIR"
+  rm -f "$DIR/.env"            # drop old settings so write_env reconfigures cleanly
+  printf '%s\n' "$new" > "$DIR/.carlog-version"
+
+  info "Configuring ${B}$DIR/.env${N} ..."
+  write_env
+
+  info "Building & starting containers (migrations & admin seed run automatically) ..."
+  compose_up
+
+  echo
+  ok "${B}Car-Log ${new}${N} is up — fresh server."
+  printf '   %sURL:%s      %s\n' "$B" "$N" "$(access_url)"
+  printf '   %sAdmin:%s    %s\n' "$B" "$N" "$ADMIN_EMAIL_FINAL"
+  if [ "${GENERATED_ADMIN_PW_SHOWN:-0}" = "1" ]; then
+    printf '   %sPassword:%s %s   %s(generated — save it now!)%s\n' "$B" "$N" "$GENERATED_ADMIN_PW" "$Y" "$N"
+  fi
+}
+
 cmd_update() {
   require_tools; detect_compose
   [ -f "$DIR/docker-compose.yml" ] || die "No install found in ${B}$DIR${N}. Set CARLOG_DIR or run install first."
 
+  # Parse options. --force rebuilds even when up to date; --fresh/--reset wipes
+  # data AND settings; --keep forces the keep path; --yes/-y pre-confirms --fresh.
+  local force=0
+  FRESH=0; KEEP=0; ASSUME_YES=0
+  for a in "$@"; do
+    case "$a" in
+      --force)         force=1;;
+      --fresh|--reset) FRESH=1;;
+      --keep)          KEEP=1;;
+      --yes|-y)        ASSUME_YES=1;;
+      *)               warn "Ignoring unknown update option: ${B}$a${N}";;
+    esac
+  done
+  [ "${CARLOG_FRESH:-0}" = 1 ] && FRESH=1
+
+  local UPDATE_MODE; choose_update_mode
+  if [ "$UPDATE_MODE" = fresh ]; then cmd_update_fresh; return; fi
+
+  # ---- keep mode: preserve data (DB volume) and settings (.env) ----
   local cur new; cur=$(current_version); new=$(resolve_ref)
   info "Installed: ${B}$cur${N}   →   available: ${B}$new${N}"
-  if [ "$cur" = "$new" ] && [ "${1:-}" != "--force" ]; then
+  if [ "$cur" = "$new" ] && [ "$force" != 1 ]; then
     ok "Already up to date. Use ${B}update --force${N} to rebuild anyway."
     return 0
   fi
@@ -261,12 +342,17 @@ usage() {
 ${B}Car-Log installer${N}
 
   install              Download the current version and start it (default)
-  update [--force]     Update an existing install (keeps your data & .env)
+  update [options]     Update an existing install. Without flags it asks whether
+                       to keep your data & settings or start fresh.
+                         --force   rebuild even if already up to date
+                         --keep    keep data & settings (no prompt)
+                         --fresh   wipe the database AND .env, set up from scratch
+                         --yes     pre-confirm --fresh (for non-interactive use)
   status               Show running containers and version
   logs                 Tail application logs
   uninstall [--purge]  Stop (and with --purge, delete the database volume)
 
-Env: CARLOG_DIR, CARLOG_REF, CARLOG_PORT, ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME, COOKIE_SECURE
+Env: CARLOG_DIR, CARLOG_REF, CARLOG_PORT, ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME, COOKIE_SECURE, CARLOG_FRESH
 EOF
 }
 
