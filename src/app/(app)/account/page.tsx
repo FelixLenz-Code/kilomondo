@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth/guards";
 import { ChangePasswordForm } from "@/components/forms/account-forms";
+import { PushToggle } from "@/components/push-toggle";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -26,6 +27,18 @@ export default async function AccountPage() {
         </CardHeader>
         <CardContent>
           <ChangePasswordForm />
+        </CardContent>
+      </Card>
+
+      <Card className="glass">
+        <CardHeader>
+          <CardTitle>Benachrichtigungen</CardTitle>
+          <CardDescription>
+            Erhalte Push-Benachrichtigungen – auch wenn die App geschlossen ist.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PushToggle />
         </CardContent>
       </Card>
     </div>

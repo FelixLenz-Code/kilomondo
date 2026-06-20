@@ -105,6 +105,31 @@ model User {
   canisters Canister[]
   // Vehicles owned by others that have been shared with this user.
   sharedVehicles VehicleShare[]
+  pushSubscriptions PushSubscription[]
+}
+
+// A Web Push subscription for one browser/device of a user. Multiple per user.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Simple key/value store for server-side app config that must persist and be
+// generated at runtime (e.g. the VAPID keypair for Web Push), so it survives
+// updates without any .env changes.
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }
 
 model Session {
