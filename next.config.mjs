@@ -9,6 +9,23 @@ const withSerwist = withSerwistInit({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Baseline security headers for every response. Kept minimal so it can't
+  // break the app: frame-ancestors/X-Frame-Options stop clickjacking, nosniff
+  // stops MIME guessing, and Referrer-Policy limits referer leakage. (A full
+  // script CSP would need per-request nonces and is intentionally out of scope.)
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+    ];
+  },
   // puppeteer (server-side 3D animation rendering) must stay external — it
   // resolves its own Chromium and must not be bundled by Next.
   // three must also stay external: render-animation.ts does

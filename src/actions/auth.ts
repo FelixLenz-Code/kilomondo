@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { db } from "@/lib/db";
 import { verifyPassword, hashPassword } from "@/lib/auth/password";
 import {
@@ -12,9 +12,25 @@ import {
   getCurrentUser,
   SESSION_COOKIE,
 } from "@/lib/auth/session";
+import {
+  loginRetryAfterMs,
+  recordLoginFailure,
+  recordLoginSuccess,
+} from "@/lib/auth/rate-limit";
 import { loginSchema, changePasswordSchema } from "@/lib/validation";
 
 export type ActionState = { error?: string; success?: string };
+
+/**
+ * Throttle key for failed logins: the client IP when a proxy provides it,
+ * otherwise the submitted email (so a single account can't be brute-forced and
+ * a missing IP can't lump everyone into one shared, easily-tripped bucket).
+ */
+async function loginThrottleKey(email: string): Promise<string> {
+  const h = await headers();
+  const ip = (h.get("x-forwarded-for")?.split(",")[0] ?? h.get("x-real-ip") ?? "").trim();
+  return ip ? `ip:${ip}` : `email:${email.toLowerCase()}`;
+}
 
 export async function loginAction(
   _prev: ActionState,
@@ -29,6 +45,14 @@ export async function loginAction(
   }
 
   const { email, password } = parsed.data;
+  const key = await loginThrottleKey(email);
+
+  const waitMs = loginRetryAfterMs(key);
+  if (waitMs > 0) {
+    const mins = Math.ceil(waitMs / 60000);
+    return { error: `Zu viele Fehlversuche. Bitte in ${mins} Minute(n) erneut versuchen.` };
+  }
+
   const user = await db.user.findUnique({ where: { email } });
 
   // Generic error to avoid user enumeration.
@@ -36,12 +60,17 @@ export async function loginAction(
   if (!user || !user.isActive) {
     // Still spend time hashing to reduce timing signal.
     await hashPassword(password).catch(() => {});
+    recordLoginFailure(key);
     return invalid;
   }
 
   const ok = await verifyPassword(user.passwordHash, password).catch(() => false);
-  if (!ok) return invalid;
+  if (!ok) {
+    recordLoginFailure(key);
+    return invalid;
+  }
 
+  recordLoginSuccess(key);
   const token = await createSession(user.id);
   await setSessionCookie(token);
   redirect("/");

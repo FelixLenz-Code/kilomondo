@@ -146,16 +146,20 @@ export async function deleteVehicleAction(vehicleId: string): Promise<void> {
     db.cleaningEntry.findMany({ where: { vehicleId }, select: { id: true } }),
   ]);
 
+  const repairIds = repairs.map((r) => r.id);
   await db.vehicle.delete({ where: { id: vehicleId } });
   await db.image.deleteMany({
     where: {
       OR: [
         { id: { in: [owned.coverImageId, owned.animationVideoId, owned.animationPosterId].filter((x): x is string => !!x) } },
-        { repairId: { in: repairs.map((r) => r.id) } },
+        { repairId: { in: repairIds } },
         { cleaningId: { in: cleanings.map((c) => c.id) } },
       ],
     },
   });
+  // Attachments have no FK/cascade — remove the repairs' attachments explicitly
+  // so they don't linger in the DB (and remain fetchable) after deletion.
+  await db.attachment.deleteMany({ where: { repairId: { in: repairIds } } });
   revalidatePath("/");
   redirect("/");
 }

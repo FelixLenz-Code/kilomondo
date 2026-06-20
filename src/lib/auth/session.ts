@@ -1,7 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { cache } from "react";
-import { createHash, randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import type { Role, User } from "@prisma/client";
 import { db } from "@/lib/db";
 
@@ -16,8 +16,11 @@ export type SessionUser = {
   role: Role;
 };
 
+// Only a keyed hash of the token is stored, so a database disclosure never
+// yields usable session cookies. SESSION_SECRET acts as a server-side pepper:
+// without it, the stored ids can't be reproduced even with DB + token guesses.
 function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
+  return createHmac("sha256", process.env.SESSION_SECRET ?? "").update(token).digest("hex");
 }
 
 export function generateSessionToken(): string {
