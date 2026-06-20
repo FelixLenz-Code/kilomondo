@@ -81,7 +81,7 @@ export function VehicleTabs({
         />
       )}
       {menuOpen && (
-        <div className="fixed inset-x-3 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-50 grid grid-cols-2 gap-1 rounded-xl border border-border bg-background/95 p-2 shadow-lg backdrop-blur-md sm:hidden">
+        <div className="fixed inset-x-3 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-50 flex flex-col gap-1 rounded-xl border border-border bg-background/95 p-2 shadow-lg backdrop-blur-md sm:hidden">
           {more.map((t) => {
             const active = pathname === t.href;
             const Icon = t.icon;
@@ -91,13 +91,13 @@ export function VehicleTabs({
                 href={t.href}
                 onClick={() => setMenuOpen(false)}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-3 rounded-lg px-4 py-3.5 text-base font-medium transition-colors",
                   active
                     ? "bg-primary/15 text-primary"
                     : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
                 )}
               >
-                <Icon className="size-4" />
+                <Icon className="size-5" />
                 <span>{t.label}</span>
               </Link>
             );
