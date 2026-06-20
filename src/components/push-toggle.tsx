@@ -19,20 +19,31 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
+type Availability = "checking" | "ok" | "insecure" | "unsupported";
+
 export function PushToggle() {
-  const [supported, setSupported] = useState<boolean | null>(null);
+  const [availability, setAvailability] = useState<Availability>("checking");
   const [subscribed, setSubscribed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ error?: string; success?: string }>({});
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    // Push needs a secure context (https or localhost). Over http://<ip> the
+    // browser hides the service-worker/push APIs entirely.
+    if (!window.isSecureContext) {
+      setAvailability("insecure");
+      return;
+    }
     const ok =
-      typeof window !== "undefined" &&
       "serviceWorker" in navigator &&
       "PushManager" in window &&
       "Notification" in window;
-    setSupported(ok);
-    if (!ok) return;
+    if (!ok) {
+      setAvailability("unsupported");
+      return;
+    }
+    setAvailability("ok");
     navigator.serviceWorker.ready
       .then((reg) => reg.pushManager.getSubscription())
       .then((sub) => setSubscribed(!!sub))
@@ -43,20 +54,49 @@ export function PushToggle() {
     setBusy(true);
     setMsg({});
     try {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        setMsg({ error: "Benachrichtigungen wurden im Browser blockiert." });
+      if (Notification.permission === "denied") {
+        setMsg({
+          error:
+            "Benachrichtigungen sind für diese Seite blockiert. Erlaube sie in den Browser-/Seiteneinstellungen und versuche es erneut.",
+        });
         return;
       }
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setMsg({ error: "Keine Berechtigung erteilt." });
+        return;
+      }
+
       const reg = await navigator.serviceWorker.ready;
       const res = await fetch("/api/push/vapid-public-key");
-      if (!res.ok) throw new Error("vapid");
+      if (!res.ok) {
+        setMsg({ error: `VAPID-Schlüssel nicht erhalten (HTTP ${res.status}).` });
+        return;
+      }
       const { key } = (await res.json()) as { key: string };
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(key),
-      });
-      const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
+
+      let sub: PushSubscription;
+      try {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(key),
+        });
+      } catch (e) {
+        const err = e as Error;
+        setMsg({
+          error:
+            `Push-Abo fehlgeschlagen (${err.name}: ${err.message}). ` +
+            "Häufigste Ursache: Brave blockiert den Push-Dienst standardmäßig — aktiviere in " +
+            "brave://settings/privacy „Google-Dienste für Push-Nachrichten verwenden\" (Android: " +
+            "Einstellungen → Datenschutz) und starte den Browser neu. Alternativ Chrome oder Firefox nutzen.",
+        });
+        return;
+      }
+
+      const json = sub.toJSON() as {
+        endpoint?: string;
+        keys?: { p256dh?: string; auth?: string };
+      };
       const result = await savePushSubscriptionAction({
         endpoint: json.endpoint ?? "",
         keys: { p256dh: json.keys?.p256dh ?? "", auth: json.keys?.auth ?? "" },
@@ -67,8 +107,9 @@ export function PushToggle() {
         setSubscribed(true);
         setMsg({ success: result.success });
       }
-    } catch {
-      setMsg({ error: "Aktivierung fehlgeschlagen. Ist die App als PWA installiert (iOS)?" });
+    } catch (e) {
+      const err = e as Error;
+      setMsg({ error: `Aktivierung fehlgeschlagen (${err.name}: ${err.message}).` });
     } finally {
       setBusy(false);
     }
@@ -100,7 +141,18 @@ export function PushToggle() {
     setBusy(false);
   }
 
-  if (supported === false) {
+  if (availability === "insecure") {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Push-Benachrichtigungen brauchen eine <strong>sichere Verbindung (HTTPS)</strong>.
+        Über <code>http://</code> mit einer IP-Adresse blockiert der Browser sie.
+        Rufe die App über <code>https://</code> auf (z. B. hinter einem Reverse-Proxy
+        mit TLS) — oder zum Testen über <code>http://localhost</code> auf dem Server selbst.
+      </p>
+    );
+  }
+
+  if (availability === "unsupported") {
     return (
       <p className="text-sm text-muted-foreground">
         Dieser Browser unterstützt keine Push-Benachrichtigungen. Auf iOS musst du
@@ -119,7 +171,7 @@ export function PushToggle() {
             Benachrichtigungen deaktivieren
           </Button>
         ) : (
-          <Button type="button" onClick={enable} disabled={busy || supported === null} className="flex-1">
+          <Button type="button" onClick={enable} disabled={busy || availability === "checking"} className="flex-1">
             {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Bell className="mr-2 size-4" />}
             Benachrichtigungen aktivieren
           </Button>
