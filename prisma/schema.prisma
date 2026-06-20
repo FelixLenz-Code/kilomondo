@@ -41,6 +41,15 @@ enum CleaningType {
   FULL
 }
 
+enum ReminderType {
+  INSPECTION // TÜV / HU
+  SERVICE    // Wartung / Inspektion
+  INSURANCE  // Versicherung
+  TAX        // Kfz-Steuer
+  LOG        // Erinnerung, etwas einzutragen
+  CUSTOM
+}
+
 enum ImageKind {
   BEFORE
   AFTER
@@ -170,8 +179,36 @@ model Vehicle {
   repairEntries  RepairEntry[]
   cleaningEntries CleaningEntry[]
   shares         VehicleShare[]
+  reminders      Reminder[]
 
   @@index([userId])
+}
+
+// A due-date / due-mileage reminder for a vehicle. The owner is notified when
+// it comes due. Evaluated by the in-process scheduler (see lib/reminder-scheduler).
+model Reminder {
+  id               String       @id @default(cuid())
+  vehicleId        String
+  type             ReminderType @default(CUSTOM)
+  title            String
+  dueDate          DateTime?
+  dueOdometer      Int?
+  // Notify this many days before dueDate.
+  leadDays         Int          @default(28)
+  // LOG reminders: notify when no entry was made for this many days.
+  intervalDays     Int?
+  // Roll dueDate forward by this many months after it passes (recurring dates).
+  recurrenceMonths Int?
+  // MANUAL or AUTO (auto-suggested from history).
+  source           String       @default("MANUAL")
+  active           Boolean      @default(true)
+  lastNotifiedAt   DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
 }
 
 // Grants another user access to a vehicle they don't own. The owner manages

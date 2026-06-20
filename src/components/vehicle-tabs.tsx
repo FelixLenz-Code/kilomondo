@@ -9,6 +9,7 @@ import {
   Wrench,
   Sparkles,
   Images,
+  BellRing,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,7 @@ export function VehicleTabs({
     { href: `${base}/repairs`, label: "Reparaturen", short: "Reparatur", icon: Wrench },
     { href: `${base}/cleaning`, label: "Pflege", short: "Pflege", icon: Sparkles },
     { href: `${base}/gallery`, label: "Galerie", short: "Bilder", icon: Images },
+    { href: `${base}/reminders`, label: "Termine", short: "Termine", icon: BellRing },
     // Settings (incl. sharing, export, delete) are owner-only.
     ...(showSettings
       ? [{ href: `${base}/settings`, label: "Einstellungen", short: "Mehr", icon: Settings }]

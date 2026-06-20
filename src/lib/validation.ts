@@ -77,6 +77,27 @@ export const cleaningSchema = z.object({
   notes: optionalString,
 });
 
+const optionalInt = (min: number, max: number) =>
+  z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    coerceNumber.int().min(min).max(max).optional()
+  );
+
+export const reminderSchema = z.object({
+  type: z.enum(["INSPECTION", "SERVICE", "INSURANCE", "TAX", "LOG", "CUSTOM"]).default("CUSTOM"),
+  title: z.string().trim().min(1, "Titel erforderlich").max(120),
+  dueDate: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.coerce.date().optional()
+  ),
+  dueOdometer: optionalOdometer,
+  leadDays: z
+    .preprocess((v) => (v === "" || v == null ? undefined : v), coerceNumber.int().min(0).max(365).optional())
+    .transform((v) => v ?? 28),
+  intervalDays: optionalInt(1, 3650),
+  recurrenceMonths: optionalInt(1, 120),
+});
+
 export const canisterSchema = z.object({
   name: z.string().trim().min(1, "Name erforderlich").max(80),
   capacity: coerceNumber.positive("Kapazität muss > 0 sein"),
