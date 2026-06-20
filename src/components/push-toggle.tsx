@@ -67,7 +67,24 @@ export function PushToggle() {
         return;
       }
 
-      const reg = await navigator.serviceWorker.ready;
+      // Make sure a service worker is registered, then wait for it to become
+      // active — but don't hang forever if activation stalls (navigator.
+      // serviceWorker.ready never resolves without an active worker).
+      let reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) reg = await navigator.serviceWorker.register("/sw.js");
+      const active = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+      ]);
+      reg = active ?? reg;
+      if (!reg?.pushManager) {
+        setMsg({
+          error:
+            "Service Worker nicht aktiv. Lade die Seite neu (ggf. einmal die App schließen/öffnen) und versuche es erneut.",
+        });
+        return;
+      }
+
       const res = await fetch("/api/push/vapid-public-key");
       if (!res.ok) {
         setMsg({ error: `VAPID-Schlüssel nicht erhalten (HTTP ${res.status}).` });
