@@ -124,6 +124,22 @@ export function VehicleForm({
         </div>
       </div>
 
+      <label className="flex items-start gap-2 rounded-lg border border-border/60 bg-background/30 p-3 text-sm">
+        <input
+          type="checkbox"
+          name="adblueTracking"
+          defaultChecked={vehicle?.adblueTracking ?? false}
+          className="mt-0.5 size-4 accent-[hsl(38_92%_55%)]"
+        />
+        <span>
+          <span className="font-medium">AdBlue-Tanken erfassen</span>
+          <span className="block text-xs text-muted-foreground">
+            Blendet bei jeder Tankung ein optionales Feld ein, um zusätzlich getanktes
+            AdBlue mit Preis zu erfassen (ohne Mengenangabe).
+          </span>
+        </span>
+      </label>
+
       <SubmitButton>{submitLabel}</SubmitButton>
     </form>
   );

@@ -163,6 +163,8 @@ model Vehicle {
   vin            String?
   fuelType       FuelType @default(PETROL)
   color          String?
+  // Optional: show an "also refueled AdBlue" checkbox + price field on fuel entries.
+  adblueTracking Boolean  @default(false)
   coverImageId   String?
   // Optional 3D intro animation rendered from an uploaded GLB model. The video
   // and its poster frame are stored as Image rows; status tracks the async render.
@@ -239,6 +241,8 @@ model FuelEntry {
   isFullTank  Boolean       @default(true)
   station     String?
   notes       String?
+  // Optional AdBlue top-up cost recorded with this fueling (no volume tracked).
+  adbluePrice Float?
   kind        FuelEntryKind @default(CAR)
   // Set when kind = CANISTER: which canister the fuel was poured from.
   canisterId  String?

@@ -89,6 +89,7 @@ export async function createFuelAction(
     isFullTank: formData.get("isFullTank") === "on" || formData.get("isFullTank") === "true",
     station: formData.get("station"),
     notes: formData.get("notes"),
+    adbluePrice: formData.get("adbluePrice"),
   });
   if (!parsed.success) return fail(parsed);
 
@@ -150,14 +151,16 @@ export async function updateFuelAction(
     isFullTank: formData.get("isFullTank") === "on" || formData.get("isFullTank") === "true",
     station: formData.get("station"),
     notes: formData.get("notes"),
+    adbluePrice: formData.get("adbluePrice"),
   });
   if (!parsed.success) return fail(parsed);
 
   // Only the core fuel fields are editable here; any linked canister fills are
-  // left untouched (manage those via the canister panel).
+  // left untouched (manage those via the canister panel). adbluePrice is forced
+  // to null when absent so unchecking the AdBlue box clears a stored value.
   const { count } = await db.fuelEntry.updateMany({
     where: { id, vehicleId },
-    data: parsed.data,
+    data: { ...parsed.data, adbluePrice: parsed.data.adbluePrice ?? null },
   });
   if (count === 0) return { error: "Eintrag nicht gefunden." };
 

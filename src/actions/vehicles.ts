@@ -26,6 +26,8 @@ function parseVehicle(formData: FormData) {
     vin: formData.get("vin"),
     fuelType: formData.get("fuelType"),
     color: formData.get("color"),
+    adblueTracking:
+      formData.get("adblueTracking") === "on" || formData.get("adblueTracking") === "true",
     initialOdometer: formData.get("initialOdometer"),
   });
 }

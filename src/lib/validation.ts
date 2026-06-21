@@ -37,6 +37,7 @@ export const vehicleSchema = z.object({
   vin: optionalString.transform((v) => v?.toUpperCase()),
   fuelType: z.enum(["PETROL", "DIESEL", "ELECTRIC", "HYBRID", "LPG"]),
   color: optionalString,
+  adblueTracking: z.coerce.boolean().default(false),
   initialOdometer: coerceNumber.int().min(0).default(0),
 });
 
@@ -49,6 +50,11 @@ export const fuelSchema = z.object({
   isFullTank: z.coerce.boolean().default(true),
   station: optionalString,
   notes: optionalString,
+  // Optional AdBlue top-up cost (no volume). Absent/empty → not recorded.
+  adbluePrice: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    coerceNumber.min(0).optional()
+  ),
 });
 
 export const odometerSchema = z.object({

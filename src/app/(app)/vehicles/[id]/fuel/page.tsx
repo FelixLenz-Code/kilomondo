@@ -67,6 +67,7 @@ export default async function FuelPage({
                 action={createFuelAction.bind(null, id)}
                 unit={unit}
                 vehicleId={id}
+                adblueEnabled={vehicle.adblueTracking}
                 canisters={canisters.map((c) => ({
                   id: c.id,
                   name: c.name,
@@ -123,6 +124,7 @@ export default async function FuelPage({
                   <FuelForm
                     action={updateFuelAction.bind(null, id, f.id)}
                     unit={unit}
+                    adblueEnabled={vehicle.adblueTracking}
                     defaults={{
                       date: f.date.toISOString().slice(0, 10),
                       odometer: f.odometer,
@@ -132,6 +134,7 @@ export default async function FuelPage({
                       isFullTank: f.isFullTank,
                       station: f.station,
                       notes: f.notes,
+                      adbluePrice: f.adbluePrice,
                     }}
                   />
                 ) : undefined
@@ -154,6 +157,9 @@ export default async function FuelPage({
                   </Badge>
                 )}
                 {f.isFullTank && <Badge variant="secondary">Voll</Badge>}
+                {f.adbluePrice != null && (
+                  <Badge variant="secondary">AdBlue {formatCurrency(f.adbluePrice)}</Badge>
+                )}
               </div>
               <p className="text-sm text-muted-foreground">
                 {formatNumber(f.amount, 2)} {unit}

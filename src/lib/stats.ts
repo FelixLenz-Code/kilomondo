@@ -97,9 +97,12 @@ export function computeStats(data: VehicleData): VehicleStats {
 
   const totalFuelAmount = fuelEntries.reduce((s, f) => s + f.amount, 0);
   const totalFuelCost = fuelEntries.reduce((s, f) => s + f.totalCost, 0);
+  // AdBlue top-ups are a separate cost (no volume) — counted in the overall total
+  // but kept out of fuel amount / price-per-unit / consumption.
+  const totalAdblueCost = fuelEntries.reduce((s, f) => s + (f.adbluePrice ?? 0), 0);
   const totalRepairCost = repairEntries.reduce((s, r) => s + r.cost, 0);
   const totalCleaningCost = cleaningEntries.reduce((s, c) => s + c.cost, 0);
-  const totalCost = totalFuelCost + totalRepairCost + totalCleaningCost;
+  const totalCost = totalFuelCost + totalAdblueCost + totalRepairCost + totalCleaningCost;
 
   const points = consumptionSeries(data);
   const avgConsumption =

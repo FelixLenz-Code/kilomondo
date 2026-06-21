@@ -74,6 +74,7 @@ export type FuelDefaults = {
   isFullTank: boolean;
   station: string | null;
   notes: string | null;
+  adbluePrice: number | null;
 };
 
 type FuelDraft = {
@@ -88,6 +89,8 @@ type FuelDraft = {
   isFullTank: boolean;
   withCan: boolean;
   litersById: Record<string, string>;
+  adblue: boolean;
+  adbluePrice: string;
 };
 
 export function FuelForm({
@@ -97,6 +100,7 @@ export function FuelForm({
   defaults,
   onDone,
   vehicleId,
+  adblueEnabled = false,
 }: {
   action: Action;
   unit: "L" | "kWh";
@@ -105,6 +109,8 @@ export function FuelForm({
   onDone?: () => void;
   // Enables the "Zwischenspeichern" draft feature (create mode only).
   vehicleId?: string;
+  // Shows the optional "also refueled AdBlue" checkbox + price (per vehicle setting).
+  adblueEnabled?: boolean;
 }) {
   const editing = !!defaults;
   const [date, setDate] = useState(defaults ? defaults.date : today());
@@ -121,6 +127,10 @@ export function FuelForm({
   const [isFullTank, setIsFullTank] = useState(defaults ? defaults.isFullTank : true);
   const [withCan, setWithCan] = useState(false);
   const [litersById, setLitersById] = useState<Record<string, string>>({});
+  const [adblue, setAdblue] = useState(defaults ? defaults.adbluePrice != null : false);
+  const [adbluePrice, setAdbluePrice] = useState(
+    defaults?.adbluePrice != null ? String(defaults.adbluePrice) : ""
+  );
 
   // Draft persistence: keyed per vehicle, disabled while editing an entry.
   const { restored, save, clear } = useFormDraft<FuelDraft>(
@@ -140,6 +150,8 @@ export function FuelForm({
     setIsFullTank(true);
     setWithCan(false);
     setLitersById({});
+    setAdblue(false);
+    setAdbluePrice("");
   }
 
   const { state, formAction, ref } = useResettingAction(action, onDone ?? (() => {
@@ -164,6 +176,8 @@ export function FuelForm({
     setIsFullTank(restored.isFullTank ?? true);
     setWithCan(restored.withCan ?? false);
     setLitersById(restored.litersById ?? {});
+    setAdblue(restored.adblue ?? false);
+    setAdbluePrice(restored.adbluePrice ?? "");
     setDraftMsg("Zwischengespeicherten Entwurf wiederhergestellt.");
   }, [restored]);
 
@@ -179,6 +193,8 @@ export function FuelForm({
     isFullTank,
     withCan,
     litersById,
+    adblue,
+    adbluePrice,
   });
 
   // Keep the latest values reachable from the visibility listener without
@@ -381,6 +397,33 @@ export function FuelForm({
         <input type="checkbox" name="isFullTank" checked={isFullTank} onChange={(e) => setIsFullTank(e.target.checked)} className="size-4 accent-[hsl(38_92%_55%)]" />
         Volltankung (für Verbrauchsberechnung)
       </label>
+
+      {adblueEnabled && (
+        <div className="space-y-2 rounded-lg border border-border/60 bg-background/30 p-3">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={adblue}
+              onChange={(e) => setAdblue(e.target.checked)}
+              className="size-4 accent-[hsl(38_92%_55%)]"
+            />
+            Auch AdBlue getankt
+          </label>
+          {adblue && (
+            <InputUnit
+              name="adbluePrice"
+              type="number"
+              step="0.01"
+              min={0}
+              required
+              unit="€"
+              placeholder="Preis fürs AdBlue"
+              value={adbluePrice}
+              onChange={(e) => setAdbluePrice(e.target.value)}
+            />
+          )}
+        </div>
+      )}
       <div className="space-y-2">
         <Label htmlFor="notes">Notizen</Label>
         <Textarea id="notes" name="notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
