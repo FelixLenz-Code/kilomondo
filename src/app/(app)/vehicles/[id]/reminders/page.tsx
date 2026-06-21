@@ -7,7 +7,7 @@ import {
   toggleReminderAction,
   acceptReminderSuggestionAction,
 } from "@/actions/reminders";
-import { suggestReminders } from "@/lib/reminder-suggestions";
+import { suggestReminders, INSPECTION_EARLY_LEAD_DAYS } from "@/lib/reminder-suggestions";
 import { ReminderForm } from "@/components/forms/reminder-form";
 import { EditableRow } from "@/components/editable-row";
 import { DeleteButton } from "@/components/delete-button";
@@ -37,7 +37,12 @@ function dueText(r: {
   const parts: string[] = [];
   if (r.dueDate) parts.push(`fällig ${formatDate(r.dueDate)}`);
   if (r.dueOdometer != null) parts.push(`bei ${formatKm(r.dueOdometer)}`);
-  parts.push(`${r.leadDays} Tage Vorlauf`);
+  // HU/AU notifies twice (early heads-up + regular lead), so show both.
+  if (r.type === "INSPECTION" && r.dueDate && r.leadDays < INSPECTION_EARLY_LEAD_DAYS) {
+    parts.push(`Erinnerung ${INSPECTION_EARLY_LEAD_DAYS} & ${r.leadDays} Tage vorher`);
+  } else {
+    parts.push(`${r.leadDays} Tage Vorlauf`);
+  }
   if (r.recurrenceMonths) parts.push(`alle ${r.recurrenceMonths} Mon.`);
   return parts.join(" · ");
 }

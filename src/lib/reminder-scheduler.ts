@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { sendPushToUser } from "@/lib/push";
-import { backfillLogRemindersOnce } from "@/lib/reminder-suggestions";
+import { backfillLogRemindersOnce, INSPECTION_EARLY_LEAD_DAYS } from "@/lib/reminder-suggestions";
 import { formatDate } from "@/lib/utils";
 
 const KM_LEAD = 500; // notify when within this many km of a mileage due
@@ -80,7 +80,7 @@ export async function runDueReminders(now = new Date()): Promise<number> {
       // threshold as it's crossed (the latest passed-but-not-yet-notified one).
       const leads =
         r.type === "INSPECTION"
-          ? Array.from(new Set([60, r.leadDays])).sort((a, b) => b - a)
+          ? Array.from(new Set([INSPECTION_EARLY_LEAD_DAYS, r.leadDays])).sort((a, b) => b - a)
           : [r.leadDays];
       let chosen: Date | null = null;
       for (const lead of leads) {

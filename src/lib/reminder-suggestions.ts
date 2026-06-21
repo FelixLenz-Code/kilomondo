@@ -2,6 +2,13 @@ import "server-only";
 import { db } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
 
+/**
+ * Early heads-up lead (days) for HU/AU: in addition to a reminder's regular
+ * leadDays, INSPECTION reminders also notify roughly two months out. Shared so
+ * the scheduler and the overview stay in sync.
+ */
+export const INSPECTION_EARLY_LEAD_DAYS = 60;
+
 export type ReminderSuggestion = {
   type: "INSPECTION" | "SERVICE";
   title: string;
