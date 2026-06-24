@@ -62,6 +62,7 @@ export async function exportVehicleCsv(
       cleaningEntries: { orderBy: { date: "asc" } },
       tireSets: { orderBy: { createdAt: "asc" } },
       tireChanges: { orderBy: { date: "asc" } },
+      tireMeasurements: { orderBy: { date: "asc" } },
       documents: { orderBy: [{ expiresAt: "asc" }, { createdAt: "desc" }] },
       trips: { orderBy: [{ date: "asc" }, { startOdometer: "asc" }] },
       chargingSessions: { orderBy: { date: "asc" } },
@@ -144,7 +145,7 @@ export async function exportVehicleCsv(
     )
   );
 
-  if (v.tireTracking && (v.tireSets.length || v.tireChanges.length)) {
+  if (v.tireTracking && (v.tireSets.length || v.tireChanges.length || v.tireMeasurements.length)) {
     const currentOdometer = Math.max(
       v.initialOdometer,
       ...v.fuelEntries.map((f) => f.odometer),
@@ -185,6 +186,21 @@ export async function exportVehicleCsv(
         ])
       )
     );
+    if (v.tireMeasurements.length) {
+      zip.file(
+        "reifenprofil.csv",
+        csv(
+          ["Datum", "Radsatz", "Profiltiefe (mm)", "Kilometerstand", "Notiz"],
+          v.tireMeasurements.map((m) => [
+            isoDate(m.date),
+            setName.get(m.tireSetId) ?? "",
+            m.treadDepthMm,
+            m.odometer ?? "",
+            m.notes ?? "",
+          ])
+        )
+      );
+    }
   }
 
   if (v.documents.length) {

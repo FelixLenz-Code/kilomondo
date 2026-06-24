@@ -235,3 +235,89 @@ export function TireChangeForm({
     </form>
   );
 }
+
+export function TireMeasurementForm({
+  action,
+  sets,
+  onDone,
+}: {
+  action: Action;
+  sets: { id: string; name: string }[];
+  onDone?: () => void;
+}) {
+  const [odometer, setOdometer] = useState("");
+  const { state, formAction, ref } = useResettingAction(
+    action,
+    onDone ?? (() => setOdometer(""))
+  );
+
+  if (sets.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Lege zuerst einen Radsatz an, um die Profiltiefe zu erfassen.
+      </p>
+    );
+  }
+
+  return (
+    <form ref={ref} action={formAction} className="space-y-4">
+      <AlertMessage error={state.error} success={state.success} />
+      <div className="space-y-2">
+        <Label htmlFor="m-tireSetId">Radsatz *</Label>
+        <Select
+          id="m-tireSetId"
+          name="tireSetId"
+          required
+          defaultValue={sets.length === 1 ? sets[0].id : ""}
+        >
+          {sets.length > 1 && (
+            <option value="" disabled>
+              Bitte wählen…
+            </option>
+          )}
+          {sets.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="m-date">Datum *</Label>
+          <Input id="m-date" name="date" type="date" required defaultValue={today()} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="m-treadDepthMm">Profiltiefe *</Label>
+          <InputUnit
+            id="m-treadDepthMm"
+            name="treadDepthMm"
+            type="number"
+            step="0.1"
+            min={0}
+            required
+            unit="mm"
+          />
+        </div>
+      </div>
+      <OdometerCapture onDetect={setOdometer} />
+      <div className="space-y-2">
+        <Label htmlFor="m-odometer">Kilometerstand</Label>
+        <InputUnit
+          id="m-odometer"
+          name="odometer"
+          type="number"
+          min={0}
+          unit="km"
+          value={odometer}
+          onChange={(e) => setOdometer(e.target.value)}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="m-notes">Notiz</Label>
+        <Input id="m-notes" name="notes" />
+      </div>
+      <SubmitButton>Profiltiefe eintragen</SubmitButton>
+    </form>
+  );
+}

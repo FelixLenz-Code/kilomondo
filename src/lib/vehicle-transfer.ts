@@ -88,6 +88,7 @@ export async function exportVehicleZip(
       cleaningEntries: { orderBy: { date: "asc" } },
       tireSets: { orderBy: { createdAt: "asc" } },
       tireChanges: { orderBy: { date: "asc" } },
+      tireMeasurements: { orderBy: { date: "asc" } },
       documents: { orderBy: { createdAt: "asc" } },
       trips: { orderBy: { date: "asc" } },
       chargingSessions: { orderBy: { date: "asc" } },
@@ -292,6 +293,13 @@ export async function exportVehicleZip(
       odometer: c.odometer,
       notes: c.notes,
     })),
+    tireMeasurements: v.tireMeasurements.map((m) => ({
+      tireSet: m.tireSetId,
+      date: m.date.toISOString(),
+      treadDepthMm: m.treadDepthMm,
+      odometer: m.odometer,
+      notes: m.notes,
+    })),
     // Document metadata + their file attachments (scans/PDFs), bytes stored in
     // the ZIP under files/doc-att-*.
     documents,
@@ -458,6 +466,17 @@ const manifestSchema = z.object({
         tireSet: z.string(),
         date: z.string(),
         odometer: num.int(),
+        notes: z.string().nullish(),
+      })
+    )
+    .default([]),
+  tireMeasurements: z
+    .array(
+      z.object({
+        tireSet: z.string(),
+        date: z.string(),
+        treadDepthMm: num,
+        odometer: num.int().nullish(),
         notes: z.string().nullish(),
       })
     )
@@ -749,6 +768,22 @@ export async function importVehicleZip(
         date: new Date(c.date),
         odometer: c.odometer,
         notes: c.notes ?? null,
+      })),
+    });
+  }
+
+  const tireMeasurements = manifest.tireMeasurements
+    .map((m) => ({ ...m, setId: tireSetIdByKey.get(m.tireSet) }))
+    .filter((m): m is typeof m & { setId: string } => !!m.setId);
+  if (tireMeasurements.length) {
+    await db.tireMeasurement.createMany({
+      data: tireMeasurements.map((m) => ({
+        vehicleId: vehicle.id,
+        tireSetId: m.setId,
+        date: new Date(m.date),
+        treadDepthMm: m.treadDepthMm,
+        odometer: m.odometer ?? null,
+        notes: m.notes ?? null,
       })),
     });
   }

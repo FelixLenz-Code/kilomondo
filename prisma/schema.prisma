@@ -226,6 +226,7 @@ model Vehicle {
   reminders      Reminder[]
   tireSets       TireSet[]
   tireChanges    TireChange[]
+  tireMeasurements TireMeasurement[]
   documents      Document[]
   trips          Trip[]
   chargingSessions ChargingSession[]
@@ -501,8 +502,28 @@ model TireSet {
 
   vehicle Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   changes TireChange[]
+  measurements TireMeasurement[]
 
   @@index([vehicleId])
+}
+
+// A tread-depth reading for a set at a point in time. Several over the life of a
+// set produce a wear curve (see lib/tires `tireWearSeries`).
+model TireMeasurement {
+  id           String   @id @default(cuid())
+  vehicleId    String
+  tireSetId    String
+  date         DateTime
+  treadDepthMm Float
+  odometer     Int?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  tireSet TireSet @relation(fields: [tireSetId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@index([tireSetId])
 }
 
 // A mount event: records that a given tire set was put on the car at this date

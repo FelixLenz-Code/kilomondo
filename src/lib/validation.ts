@@ -219,6 +219,14 @@ export const tireChangeSchema = z.object({
   notes: optionalString,
 });
 
+export const tireMeasurementSchema = z.object({
+  tireSetId: z.string().min(1, "Bitte einen Radsatz wählen."),
+  date: z.coerce.date(),
+  treadDepthMm: coerceNumber.min(0, "Profiltiefe muss ≥ 0 sein").max(25),
+  odometer: optionalOdometer,
+  notes: optionalString,
+});
+
 export const canisterSchema = z.object({
   name: z.string().trim().min(1, "Name erforderlich").max(80),
   capacity: coerceNumber.positive("Kapazität muss > 0 sein"),

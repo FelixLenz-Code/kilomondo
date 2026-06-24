@@ -1,16 +1,19 @@
 import { redirect } from "next/navigation";
-import { CircleDot, Snowflake, Sun, CalendarSync } from "lucide-react";
+import { CircleDot, Snowflake, Sun, CalendarSync, Ruler } from "lucide-react";
 import { requireUser, vehicleAccessWhere, getVehicleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
-import { summariseTireSets, tireSeasonLabel } from "@/lib/tires";
+import { summariseTireSets, tireSeasonLabel, tireWearSeries } from "@/lib/tires";
 import {
   createTireSetAction,
   updateTireSetAction,
   deleteTireSetAction,
   createTireChangeAction,
   deleteTireChangeAction,
+  createTireMeasurementAction,
+  deleteTireMeasurementAction,
 } from "@/actions/tires";
-import { TireSetForm, TireChangeForm } from "@/components/forms/tire-forms";
+import { TireSetForm, TireChangeForm, TireMeasurementForm } from "@/components/forms/tire-forms";
+import { TireWearChart } from "@/components/charts/tire-wear-chart";
 import { DeleteButton } from "@/components/delete-button";
 import { EditableRow } from "@/components/editable-row";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,6 +35,7 @@ export default async function TiresPage({
     include: {
       tireSets: { orderBy: { createdAt: "asc" } },
       tireChanges: { orderBy: [{ odometer: "desc" }, { date: "desc" }] },
+      tireMeasurements: { orderBy: [{ date: "asc" }, { createdAt: "asc" }] },
     },
   });
   if (!vehicle) return null;
@@ -56,6 +60,10 @@ export default async function TiresPage({
   const summaries = summariseTireSets(vehicle.tireSets, vehicle.tireChanges, currentOdometer);
   const activeSets = summaries.filter((s) => !s.retired);
   const setName = new Map(vehicle.tireSets.map((s) => [s.id, s.name]));
+  const wear = tireWearSeries(vehicle.tireSets, vehicle.tireMeasurements);
+  const measurementsByDateDesc = [...vehicle.tireMeasurements].sort(
+    (a, b) => b.date.getTime() - a.date.getTime()
+  );
   const SeasonIcon = (season: string) =>
     season === "WINTER" ? Snowflake : season === "ALLSEASON" ? CircleDot : Sun;
 
@@ -79,6 +87,18 @@ export default async function TiresPage({
             <CardContent>
               <TireChangeForm
                 action={createTireChangeAction.bind(null, id)}
+                sets={activeSets.map((s) => ({ id: s.id, name: s.name }))}
+              />
+            </CardContent>
+          </Card>
+
+          <Card className="glass h-fit">
+            <CardHeader>
+              <CardTitle>Profiltiefe messen</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TireMeasurementForm
+                action={createTireMeasurementAction.bind(null, id)}
                 sets={activeSets.map((s) => ({ id: s.id, name: s.name }))}
               />
             </CardContent>
@@ -156,6 +176,53 @@ export default async function TiresPage({
             })}
           </CardContent>
         </Card>
+
+        {vehicle.tireMeasurements.length > 0 && (
+          <Card className="glass">
+            <CardHeader>
+              <CardTitle>Profil-Verlauf ({vehicle.tireMeasurements.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <TireWearChart data={wear.data} sets={wear.sets} />
+              <div className="space-y-2">
+                {measurementsByDateDesc.map((m) => (
+                  <EditableRow
+                    key={m.id}
+                    align="center"
+                    meta={
+                      <span className="text-sm font-medium">
+                        {formatNumber(m.treadDepthMm, 1)} mm
+                      </span>
+                    }
+                    deleteButton={
+                      canEdit ? (
+                        <DeleteButton
+                          action={deleteTireMeasurementAction.bind(null, id, m.id)}
+                        />
+                      ) : undefined
+                    }
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Ruler className="size-4 text-muted-foreground" />
+                      <span className="font-medium">{formatDate(m.date)}</span>
+                      <Badge variant="secondary">
+                        {setName.get(m.tireSetId) ?? "Unbekannt"}
+                      </Badge>
+                      {m.odometer != null && (
+                        <span className="text-sm text-muted-foreground">
+                          {formatKm(m.odometer)}
+                        </span>
+                      )}
+                    </div>
+                    {m.notes && (
+                      <p className="text-sm text-muted-foreground">{m.notes}</p>
+                    )}
+                  </EditableRow>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="glass">
           <CardHeader>
