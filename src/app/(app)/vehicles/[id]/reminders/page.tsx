@@ -170,12 +170,15 @@ export default async function RemindersPage({
                 deleteButton={
                   canEdit ? (
                     tire ? (
-                      <Link
-                        href={`/vehicles/${id}/tires`}
-                        className={buttonVariants({ variant: "ghost", size: "sm" }) + " text-muted-foreground hover:text-foreground"}
-                      >
-                        Reifen
-                      </Link>
+                      <>
+                        <Link
+                          href={`/vehicles/${id}/tires`}
+                          className={buttonVariants({ variant: "ghost", size: "sm" }) + " text-muted-foreground hover:text-foreground"}
+                        >
+                          Reifen
+                        </Link>
+                        <DeleteButton action={deleteReminderAction.bind(null, id, r.id)} />
+                      </>
                     ) : (
                       <>
                         <form action={toggleReminderAction.bind(null, id, r.id)}>

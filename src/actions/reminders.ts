@@ -117,8 +117,17 @@ export async function acceptReminderSuggestionAction(vehicleId: string, formData
 
 export async function deleteReminderAction(vehicleId: string, id: string) {
   await assertCanEdit(vehicleId);
+  // For a tire-wear reminder, also clear the link + threshold on its set, so the
+  // set doesn't keep a dangling reminderId and doesn't recreate the reminder on
+  // its next save. Deleting it here means: turn the wear alert off. No-op for
+  // every other reminder.
+  await db.tireSet.updateMany({
+    where: { vehicleId, reminderId: id },
+    data: { reminderId: null, wearAlertMm: null },
+  });
   await db.reminder.deleteMany({ where: { id, vehicleId } });
   revalidatePath(`/vehicles/${vehicleId}/reminders`);
+  revalidatePath(`/vehicles/${vehicleId}/tires`);
 }
 
 export async function toggleReminderAction(vehicleId: string, id: string) {

@@ -74,6 +74,14 @@ Nach dem ursprünglichen Auftrag noch ergänzt:
 - Bestandsradsätze (vor dem Fix angelegt) bekommen die Erinnerung erst beim
   nächsten Speichern.
 
+**Released in v0.23.0 (2026-06-24): Reifen-Erinnerung im Termine-Tab löschbar.**
+- Neben dem „Reifen"-Link gibt es jetzt einen Löschen-Button für die
+  Verschleiß-Erinnerung. `deleteReminderAction` (`src/actions/reminders.ts`)
+  räumt dabei den verknüpften Radsatz auf (`reminderId` + `wearAlertMm` → null),
+  damit kein toter Link bleibt und die Erinnerung nicht beim nächsten Speichern
+  des Satzes wieder auftaucht — Löschen = Verschleiß-Warnung aus. No-op für alle
+  übrigen Erinnerungen.
+
 ### Offen / Folgeschritte
 - Nicht beauftragt, aber denkbar: CSV-Import auch für Reparaturen/Pflege;
   wiederkehrende Fixkosten automatisch fortschreiben.
