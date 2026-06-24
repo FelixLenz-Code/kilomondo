@@ -13,8 +13,10 @@ import { EditableRow } from "@/components/editable-row";
 import { DeleteButton } from "@/components/delete-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { formatDate, formatKm } from "@/lib/utils";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { latestMinTread } from "@/lib/tires";
+import { formatDate, formatKm, formatNumber } from "@/lib/utils";
+import Link from "next/link";
 
 const typeLabel: Record<string, string> = {
   INSPECTION: "HU/AU",
@@ -42,6 +44,17 @@ function dueText(r: {
   return parts.join(" · ");
 }
 
+/**
+ * Tire-wear reminders have no date — they fire from tread measurements. Show the
+ * alert threshold and the latest measured depth instead of the generic dueText.
+ */
+function tireDueText(t: { wearAlertMm: number | null; minTread: number | null }): string {
+  const parts: string[] = [];
+  if (t.minTread != null) parts.push(`Profil akt. ${formatNumber(t.minTread, 1)} mm`);
+  if (t.wearAlertMm != null) parts.push(`Warnung bei ${formatNumber(t.wearAlertMm, 1)} mm`);
+  return parts.length ? parts.join(" · ") : "Profilwarnung aktiv";
+}
+
 export default async function RemindersPage({
   params,
 }: {
@@ -56,6 +69,20 @@ export default async function RemindersPage({
     include: { reminders: { orderBy: [{ active: "desc" }, { dueDate: "asc" }, { createdAt: "desc" }] } },
   });
   if (!vehicle) return null;
+
+  // Tire-wear reminders are managed by their tire set (source TIRE). Pull the
+  // linked sets so we can show the tread threshold/latest reading and keep the
+  // row read-only here (edited under the Reifen tab).
+  const tireSets = await db.tireSet.findMany({
+    where: { vehicleId: id, reminderId: { not: null } },
+    include: { measurements: true },
+  });
+  const tireByReminder = new Map(
+    tireSets.map((s) => [
+      s.reminderId as string,
+      { wearAlertMm: s.wearAlertMm, minTread: latestMinTread(s.measurements) },
+    ])
+  );
 
   // Auto-suggestions derived from history (only useful for editors).
   const suggestions = canEdit ? await suggestReminders(id) : [];
@@ -119,48 +146,62 @@ export default async function RemindersPage({
               Noch keine Erinnerungen. Lege z. B. HU/AU oder die nächste Wartung an.
             </p>
           )}
-          {vehicle.reminders.map((r) => (
-            <EditableRow
-              key={r.id}
-              edit={
-                canEdit ? (
-                  <ReminderForm
-                    action={updateReminderAction.bind(null, id, r.id)}
-                    defaults={{
-                      type: r.type,
-                      title: r.title,
-                      dueDate: r.dueDate ? r.dueDate.toISOString().slice(0, 10) : "",
-                      dueOdometer: r.dueOdometer,
-                      leadDays: r.leadDays,
-                      intervalDays: r.intervalDays,
-                      recurrenceMonths: r.recurrenceMonths,
-                    }}
-                  />
-                ) : undefined
-              }
-              deleteButton={
-                canEdit ? (
-                  <>
-                    <form action={toggleReminderAction.bind(null, id, r.id)}>
-                      <Button type="submit" variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-                        {r.active ? "Pausieren" : "Aktivieren"}
-                      </Button>
-                    </form>
-                    <DeleteButton action={deleteReminderAction.bind(null, id, r.id)} />
-                  </>
-                ) : undefined
-              }
-            >
-              <div className={r.active ? "" : "opacity-60"}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{r.title}</span>
-                  <Badge variant="secondary">{typeLabel[r.type]}</Badge>
-                  {!r.active && <Badge variant="outline">pausiert</Badge>}
+          {vehicle.reminders.map((r) => {
+            const tire = r.source === "TIRE" ? tireByReminder.get(r.id) : undefined;
+            return (
+              <EditableRow
+                key={r.id}
+                edit={
+                  canEdit && !tire ? (
+                    <ReminderForm
+                      action={updateReminderAction.bind(null, id, r.id)}
+                      defaults={{
+                        type: r.type,
+                        title: r.title,
+                        dueDate: r.dueDate ? r.dueDate.toISOString().slice(0, 10) : "",
+                        dueOdometer: r.dueOdometer,
+                        leadDays: r.leadDays,
+                        intervalDays: r.intervalDays,
+                        recurrenceMonths: r.recurrenceMonths,
+                      }}
+                    />
+                  ) : undefined
+                }
+                deleteButton={
+                  canEdit ? (
+                    tire ? (
+                      <Link
+                        href={`/vehicles/${id}/tires`}
+                        className={buttonVariants({ variant: "ghost", size: "sm" }) + " text-muted-foreground hover:text-foreground"}
+                      >
+                        Reifen
+                      </Link>
+                    ) : (
+                      <>
+                        <form action={toggleReminderAction.bind(null, id, r.id)}>
+                          <Button type="submit" variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
+                            {r.active ? "Pausieren" : "Aktivieren"}
+                          </Button>
+                        </form>
+                        <DeleteButton action={deleteReminderAction.bind(null, id, r.id)} />
+                      </>
+                    )
+                  ) : undefined
+                }
+              >
+                <div className={r.active ? "" : "opacity-60"}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{r.title}</span>
+                    <Badge variant="secondary">{tire ? "Reifen" : typeLabel[r.type]}</Badge>
+                    {!r.active && <Badge variant="outline">pausiert</Badge>}
+                  </div>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
+                    {tire ? tireDueText(tire) : dueText(r)}
+                  </p>
                 </div>
-                <p className="mt-0.5 text-sm text-muted-foreground">{dueText(r)}</p>
-              </div>
-            </EditableRow>
-          ))}
+              </EditableRow>
+            );
+          })}
         </CardContent>
       </Card>
     </div>

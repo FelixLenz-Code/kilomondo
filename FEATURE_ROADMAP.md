@@ -52,6 +52,19 @@ Nach dem ursprünglichen Auftrag noch ergänzt:
 - Export: ZIP (Round-Trip verifiziert) + CSV `reifenprofil.csv`. PDF unverändert
   (zeigt weiterhin die – jetzt synchronisierte – aktuelle Profiltiefe).
 
+**Released in v0.20.0 (2026-06-24): Reifen-Verschleiß-Reminder + Dashboard-Graph.**
+- Pro Radsatz `wearAlertMm`-Schwelle → verknüpfter `Reminder` (`source: "TIRE"`),
+  den der Scheduler über die Profiltiefe-Messungen (`latestMinTread`) feuert.
+
+**Released in v0.21.0 (2026-06-24): Reifen-Reminder sauber in den Terminen.**
+- Der Verschleiß-Reminder erscheint jetzt im Termine-Tab mit eigenem Badge
+  „Reifen" und sinnvollem Text (aktuelle Profiltiefe + Warnschwelle in mm) statt
+  der irreführenden „28 Tage Vorlauf"-Zeile (er hat kein Fälligkeitsdatum).
+- In der Liste read-only: kein generisches Bearbeiten/Löschen/Pausieren (würde
+  den vom Radsatz verwalteten Eintrag zerschießen), stattdessen ein „Reifen"-Link
+  zum Reifen-Tab. `reminders/page.tsx` lädt dazu die per `reminderId` verknüpften
+  Radsätze + Messungen.
+
 ### Offen / Folgeschritte
 - Nicht beauftragt, aber denkbar: CSV-Import auch für Reparaturen/Pflege;
   wiederkehrende Fixkosten automatisch fortschreiben.
