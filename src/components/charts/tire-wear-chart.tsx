@@ -11,14 +11,14 @@ import {
   YAxis,
   Legend,
 } from "recharts";
-import type { TireWearRow } from "@/lib/tires";
+import type { TireWearRow, TireWearLine } from "@/lib/tires";
 
 export function TireWearChart({
   data,
-  sets,
+  lines,
 }: {
   data: TireWearRow[];
-  sets: { key: string; name: string; color: string }[];
+  lines: TireWearLine[];
 }) {
   if (data.length < 2) {
     return (
@@ -66,13 +66,13 @@ export function TireWearChart({
           strokeDasharray="4 4"
           label={{ value: "Min. 1,6 mm", position: "insideBottomRight", fill: "hsl(0 72% 65%)", fontSize: 11 }}
         />
-        {sets.map((s) => (
+        {lines.map((l) => (
           <Line
-            key={s.key}
+            key={l.key}
             type="monotone"
-            dataKey={s.key}
-            name={s.name}
-            stroke={s.color}
+            dataKey={l.key}
+            name={l.name}
+            stroke={l.color}
             strokeWidth={2}
             connectNulls
             dot={{ r: 3 }}

@@ -158,7 +158,7 @@ export async function exportVehicleCsv(
     zip.file(
       "radsaetze.csv",
       csv(
-        ["Bezeichnung", "Saison", "Größe", "Marke", "Kaufdatum", "Profil (mm)", "Einlagerung", "Ausgemustert", "Gefahrene km", "Notiz"],
+        ["Bezeichnung", "Saison", "Größe", "Marke", "Kaufdatum", "Profil (mm)", "Warnschwelle (mm)", "Einlagerung", "Ausgemustert", "Gefahrene km", "Notiz"],
         summaries.map((t) => [
           t.name,
           tireSeasonLabel(t.season),
@@ -166,6 +166,7 @@ export async function exportVehicleCsv(
           t.brand ?? "",
           t.purchaseDate ? isoDate(t.purchaseDate) : "",
           t.treadDepthMm ?? "",
+          t.wearAlertMm ?? "",
           t.storageLocation ?? "",
           t.retired ? "ja" : "nein",
           t.mountedKm,
@@ -190,11 +191,25 @@ export async function exportVehicleCsv(
       zip.file(
         "reifenprofil.csv",
         csv(
-          ["Datum", "Radsatz", "Profiltiefe (mm)", "Kilometerstand", "Notiz"],
+          [
+            "Datum",
+            "Radsatz",
+            "Ø Profil (mm)",
+            "Vorne links (mm)",
+            "Vorne rechts (mm)",
+            "Hinten links (mm)",
+            "Hinten rechts (mm)",
+            "Kilometerstand",
+            "Notiz",
+          ],
           v.tireMeasurements.map((m) => [
             isoDate(m.date),
             setName.get(m.tireSetId) ?? "",
             m.treadDepthMm,
+            m.treadFrontLeftMm ?? "",
+            m.treadFrontRightMm ?? "",
+            m.treadRearLeftMm ?? "",
+            m.treadRearRightMm ?? "",
             m.odometer ?? "",
             m.notes ?? "",
           ])

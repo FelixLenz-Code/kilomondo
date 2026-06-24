@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { CircleDot, Snowflake, Sun, CalendarSync, Ruler } from "lucide-react";
 import { requireUser, vehicleAccessWhere, getVehicleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
-import { summariseTireSets, tireSeasonLabel, tireWearSeries } from "@/lib/tires";
+import { summariseTireSets, tireSeasonLabel, tireWearSeries, TIRE_POSITIONS } from "@/lib/tires";
 import {
   createTireSetAction,
   updateTireSetAction,
@@ -142,6 +142,7 @@ export default async function TiresPage({
                           storageLocation: s.storageLocation,
                           retired: s.retired,
                           notes: s.notes,
+                          wearAlertMm: s.wearAlertMm,
                         }}
                       />
                     ) : undefined
@@ -183,7 +184,7 @@ export default async function TiresPage({
               <CardTitle>Profil-Verlauf ({vehicle.tireMeasurements.length})</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <TireWearChart data={wear.data} sets={wear.sets} />
+              <TireWearChart data={wear.data} lines={wear.lines} />
               <div className="space-y-2">
                 {measurementsByDateDesc.map((m) => (
                   <EditableRow
@@ -191,7 +192,7 @@ export default async function TiresPage({
                     align="center"
                     meta={
                       <span className="text-sm font-medium">
-                        {formatNumber(m.treadDepthMm, 1)} mm
+                        ⌀ {formatNumber(m.treadDepthMm, 1)} mm
                       </span>
                     }
                     deleteButton={
@@ -214,6 +215,14 @@ export default async function TiresPage({
                         </span>
                       )}
                     </div>
+                    <p className="text-sm text-muted-foreground">
+                      {TIRE_POSITIONS.map((p) => {
+                        const v = m[p.field] as number | null;
+                        return v != null ? `${p.code} ${formatNumber(v, 1)}` : null;
+                      })
+                        .filter(Boolean)
+                        .join(" · ") || "—"}
+                    </p>
                     {m.notes && (
                       <p className="text-sm text-muted-foreground">{m.notes}</p>
                     )}

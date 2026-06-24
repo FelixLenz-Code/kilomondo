@@ -210,6 +210,10 @@ export const tireSetSchema = z.object({
   storageLocation: optionalString,
   retired: z.coerce.boolean().default(false),
   notes: optionalString,
+  wearAlertMm: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    coerceNumber.min(0).max(25).optional()
+  ),
 });
 
 export const tireChangeSchema = z.object({
@@ -219,13 +223,29 @@ export const tireChangeSchema = z.object({
   notes: optionalString,
 });
 
-export const tireMeasurementSchema = z.object({
-  tireSetId: z.string().min(1, "Bitte einen Radsatz wählen."),
-  date: z.coerce.date(),
-  treadDepthMm: coerceNumber.min(0, "Profiltiefe muss ≥ 0 sein").max(25),
-  odometer: optionalOdometer,
-  notes: optionalString,
-});
+const optionalTread = z.preprocess(
+  (v) => (v === "" || v == null ? undefined : v),
+  coerceNumber.min(0, "Profiltiefe muss ≥ 0 sein").max(25).optional()
+);
+
+export const tireMeasurementSchema = z
+  .object({
+    tireSetId: z.string().min(1, "Bitte einen Radsatz wählen."),
+    date: z.coerce.date(),
+    treadFrontLeftMm: optionalTread,
+    treadFrontRightMm: optionalTread,
+    treadRearLeftMm: optionalTread,
+    treadRearRightMm: optionalTread,
+    odometer: optionalOdometer,
+    notes: optionalString,
+  })
+  .refine(
+    (d) =>
+      [d.treadFrontLeftMm, d.treadFrontRightMm, d.treadRearLeftMm, d.treadRearRightMm].some(
+        (v) => v != null
+      ),
+    { message: "Mindestens eine Profiltiefe eintragen.", path: ["treadFrontLeftMm"] }
+  );
 
 export const canisterSchema = z.object({
   name: z.string().trim().min(1, "Name erforderlich").max(80),

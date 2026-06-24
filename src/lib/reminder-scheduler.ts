@@ -2,7 +2,8 @@ import "server-only";
 import { db } from "@/lib/db";
 import { sendPushToUser } from "@/lib/push";
 import { backfillLogRemindersOnce, splitInspectionRemindersOnce } from "@/lib/reminder-suggestions";
-import { formatDate } from "@/lib/utils";
+import { latestMinTread } from "@/lib/tires";
+import { formatDate, formatNumber } from "@/lib/utils";
 
 const KM_LEAD = 500; // notify when within this many km of a mileage due
 const HOUR = 60 * 60 * 1000;
@@ -96,6 +97,24 @@ export async function runDueReminders(now = new Date()): Promise<number> {
             ? `${r.title}: noch ~${remaining} km bis ${r.dueOdometer} km.`
             : `${r.title}: ${r.dueOdometer} km erreicht.`;
         due = true;
+      }
+    } else if (r.source === "TIRE") {
+      // Tread-wear alert: fire once the lowest recent reading of the linked set
+      // reaches its threshold. Re-notify at most every 14 days.
+      const set = await db.tireSet.findFirst({
+        where: { reminderId: r.id },
+        include: { measurements: true },
+      });
+      if (set && !set.retired && set.wearAlertMm != null) {
+        const min = latestMinTread(set.measurements);
+        if (
+          min != null &&
+          min <= set.wearAlertMm &&
+          (!r.lastNotifiedAt || daysSince(r.lastNotifiedAt, now) >= 14)
+        ) {
+          body = `${set.name}: Profil nur noch ${formatNumber(min, 1)} mm – bald neue Reifen besorgen.`;
+          due = true;
+        }
       }
     }
 

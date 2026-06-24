@@ -22,6 +22,41 @@ function refresh(vehicleId: string) {
   revalidatePath(`/vehicles/${vehicleId}`);
 }
 
+/* ---------------- Tire wear reminder ---------------- */
+
+// Create/update/remove the reminder linked to a set's wear-alert threshold.
+// Mirrors lib/documents `applyDocumentReminder`. The scheduler decides when it
+// actually fires (once the lowest measured tread reaches `wearAlertMm`).
+async function applyTireReminder(opts: {
+  vehicleId: string;
+  existingReminderId: string | null;
+  name: string;
+  wearAlertMm: number | null | undefined;
+  retired: boolean;
+}): Promise<string | null> {
+  const want = opts.wearAlertMm != null && !opts.retired;
+  if (!want) {
+    if (opts.existingReminderId) {
+      await db.reminder.deleteMany({ where: { id: opts.existingReminderId } });
+    }
+    return null;
+  }
+
+  const title = `Reifen bald wechseln: ${opts.name}`;
+  if (opts.existingReminderId) {
+    const { count } = await db.reminder.updateMany({
+      where: { id: opts.existingReminderId },
+      data: { title, active: true },
+    });
+    if (count > 0) return opts.existingReminderId;
+  }
+
+  const created = await db.reminder.create({
+    data: { vehicleId: opts.vehicleId, type: "CUSTOM", title, source: "TIRE", active: true },
+  });
+  return created.id;
+}
+
 /* ---------------- Tire sets ---------------- */
 
 export async function createTireSetAction(
@@ -43,7 +78,17 @@ export async function createTireSetAction(
   });
   if (!parsed.success) return fail(parsed);
 
-  await db.tireSet.create({ data: { ...parsed.data, vehicleId } });
+  const created = await db.tireSet.create({ data: { ...parsed.data, vehicleId } });
+  const reminderId = await applyTireReminder({
+    vehicleId,
+    existingReminderId: null,
+    name: created.name,
+    wearAlertMm: parsed.data.wearAlertMm,
+    retired: parsed.data.retired,
+  });
+  if (reminderId) {
+    await db.tireSet.update({ where: { id: created.id }, data: { reminderId } });
+  }
   refresh(vehicleId);
   return { success: "Radsatz gespeichert." };
 }
@@ -68,22 +113,41 @@ export async function updateTireSetAction(
   });
   if (!parsed.success) return fail(parsed);
 
-  const { count } = await db.tireSet.updateMany({
+  const existing = await db.tireSet.findFirst({
     where: { id, vehicleId },
+    select: { reminderId: true },
+  });
+  if (!existing) return { error: "Radsatz nicht gefunden." };
+
+  await db.tireSet.update({
+    where: { id },
     data: {
       ...parsed.data,
       purchaseDate: parsed.data.purchaseDate ?? null,
       treadDepthMm: parsed.data.treadDepthMm ?? null,
+      wearAlertMm: parsed.data.wearAlertMm ?? null,
     },
   });
-  if (count === 0) return { error: "Radsatz nicht gefunden." };
+
+  const reminderId = await applyTireReminder({
+    vehicleId,
+    existingReminderId: existing.reminderId,
+    name: parsed.data.name,
+    wearAlertMm: parsed.data.wearAlertMm,
+    retired: parsed.data.retired,
+  });
+  if (reminderId !== existing.reminderId) {
+    await db.tireSet.update({ where: { id }, data: { reminderId } });
+  }
   refresh(vehicleId);
   return { success: "Radsatz aktualisiert." };
 }
 
 export async function deleteTireSetAction(vehicleId: string, id: string) {
   if (!(await canEdit(vehicleId))) return;
+  const set = await db.tireSet.findFirst({ where: { id, vehicleId }, select: { reminderId: true } });
   await db.tireSet.deleteMany({ where: { id, vehicleId } });
+  if (set?.reminderId) await db.reminder.deleteMany({ where: { id: set.reminderId } });
   refresh(vehicleId);
 }
 
@@ -146,7 +210,10 @@ export async function createTireMeasurementAction(
   const parsed = tireMeasurementSchema.safeParse({
     tireSetId: formData.get("tireSetId"),
     date: formData.get("date"),
-    treadDepthMm: formData.get("treadDepthMm"),
+    treadFrontLeftMm: formData.get("treadFrontLeftMm"),
+    treadFrontRightMm: formData.get("treadFrontRightMm"),
+    treadRearLeftMm: formData.get("treadRearLeftMm"),
+    treadRearRightMm: formData.get("treadRearRightMm"),
     odometer: formData.get("odometer"),
     notes: formData.get("notes"),
   });
@@ -154,12 +221,25 @@ export async function createTireMeasurementAction(
 
   const set = await db.tireSet.findFirst({
     where: { id: parsed.data.tireSetId, vehicleId },
-    select: { id: true },
+    select: { id: true, reminderId: true },
   });
   if (!set) return { error: "Radsatz nicht gefunden." };
 
-  await db.tireMeasurement.create({ data: { ...parsed.data, vehicleId } });
+  // The set-level depth is the average of whichever tires were measured.
+  const perTire = [
+    parsed.data.treadFrontLeftMm,
+    parsed.data.treadFrontRightMm,
+    parsed.data.treadRearLeftMm,
+    parsed.data.treadRearRightMm,
+  ].filter((v): v is number => v != null);
+  const treadDepthMm = perTire.reduce((a, b) => a + b, 0) / perTire.length;
+
+  await db.tireMeasurement.create({ data: { ...parsed.data, treadDepthMm, vehicleId } });
   await syncSetTreadDepth(parsed.data.tireSetId);
+  // Re-arm the wear reminder so the scheduler re-checks this fresh reading.
+  if (set.reminderId) {
+    await db.reminder.updateMany({ where: { id: set.reminderId }, data: { lastNotifiedAt: null } });
+  }
   refresh(vehicleId);
   return { success: "Profiltiefe gespeichert." };
 }

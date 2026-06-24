@@ -498,6 +498,10 @@ model TireSet {
   storageLocation String?
   retired         Boolean    @default(false)
   notes           String?
+  // Warn (via a linked reminder) once the lowest measured tread reaches this
+  // depth in mm; null = no wear alert for this set.
+  wearAlertMm     Float?
+  reminderId      String?
   createdAt       DateTime   @default(now())
 
   vehicle Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
@@ -514,7 +518,14 @@ model TireMeasurement {
   vehicleId    String
   tireSetId    String
   date         DateTime
+  // Average of the per-tire readings below (or the single value entered), so
+  // the set's "latest depth" and the PDF keep one comparable number.
   treadDepthMm Float
+  // Optional per-tire tread depth (front/rear × left/right).
+  treadFrontLeftMm  Float?
+  treadFrontRightMm Float?
+  treadRearLeftMm   Float?
+  treadRearRightMm  Float?
   odometer     Int?
   notes        String?
   createdAt    DateTime @default(now())

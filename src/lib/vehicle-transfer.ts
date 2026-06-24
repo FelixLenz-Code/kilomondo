@@ -286,6 +286,7 @@ export async function exportVehicleZip(
       storageLocation: t.storageLocation,
       retired: t.retired,
       notes: t.notes,
+      wearAlertMm: t.wearAlertMm,
     })),
     tireChanges: v.tireChanges.map((c) => ({
       tireSet: c.tireSetId,
@@ -297,6 +298,10 @@ export async function exportVehicleZip(
       tireSet: m.tireSetId,
       date: m.date.toISOString(),
       treadDepthMm: m.treadDepthMm,
+      treadFrontLeftMm: m.treadFrontLeftMm,
+      treadFrontRightMm: m.treadFrontRightMm,
+      treadRearLeftMm: m.treadRearLeftMm,
+      treadRearRightMm: m.treadRearRightMm,
       odometer: m.odometer,
       notes: m.notes,
     })),
@@ -457,6 +462,7 @@ const manifestSchema = z.object({
         storageLocation: z.string().nullish(),
         retired: z.boolean().default(false),
         notes: z.string().nullish(),
+        wearAlertMm: num.nullish(),
       })
     )
     .default([]),
@@ -476,6 +482,10 @@ const manifestSchema = z.object({
         tireSet: z.string(),
         date: z.string(),
         treadDepthMm: num,
+        treadFrontLeftMm: num.nullish(),
+        treadFrontRightMm: num.nullish(),
+        treadRearLeftMm: num.nullish(),
+        treadRearRightMm: num.nullish(),
         odometer: num.int().nullish(),
         notes: z.string().nullish(),
       })
@@ -753,9 +763,23 @@ export async function importVehicleZip(
         storageLocation: t.storageLocation ?? null,
         retired: t.retired,
         notes: t.notes ?? null,
+        wearAlertMm: t.wearAlertMm ?? null,
       },
     });
     tireSetIdByKey.set(t.key, created.id);
+    // Re-create the wear reminder for active sets that want one.
+    if (t.wearAlertMm != null && !t.retired) {
+      const reminder = await db.reminder.create({
+        data: {
+          vehicleId: vehicle.id,
+          type: "CUSTOM",
+          title: `Reifen bald wechseln: ${t.name}`,
+          source: "TIRE",
+          active: true,
+        },
+      });
+      await db.tireSet.update({ where: { id: created.id }, data: { reminderId: reminder.id } });
+    }
   }
   const tireChanges = manifest.tireChanges
     .map((c) => ({ ...c, setId: tireSetIdByKey.get(c.tireSet) }))
@@ -782,6 +806,10 @@ export async function importVehicleZip(
         tireSetId: m.setId,
         date: new Date(m.date),
         treadDepthMm: m.treadDepthMm,
+        treadFrontLeftMm: m.treadFrontLeftMm ?? null,
+        treadFrontRightMm: m.treadFrontRightMm ?? null,
+        treadRearLeftMm: m.treadRearLeftMm ?? null,
+        treadRearRightMm: m.treadRearRightMm ?? null,
         odometer: m.odometer ?? null,
         notes: m.notes ?? null,
       })),

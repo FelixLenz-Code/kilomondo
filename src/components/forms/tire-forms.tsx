@@ -40,6 +40,7 @@ export type TireSetDefaults = {
   storageLocation: string | null;
   retired: boolean;
   notes: string | null;
+  wearAlertMm: number | null;
 };
 
 export function TireSetForm({
@@ -122,6 +123,22 @@ export function TireSetForm({
             placeholder="z. B. Keller, Reifenhotel"
             defaultValue={defaults?.storageLocation ?? ""}
           />
+        </div>
+        <div className="space-y-2 sm:col-span-2">
+          <Label htmlFor="wearAlertMm">Warnen ab Profiltiefe</Label>
+          <InputUnit
+            id="wearAlertMm"
+            name="wearAlertMm"
+            type="number"
+            step="0.1"
+            min={0}
+            unit="mm"
+            defaultValue={editing ? defaults?.wearAlertMm ?? "" : 2.5}
+          />
+          <p className="text-xs text-muted-foreground">
+            Erinnerung, sobald der niedrigste gemessene Reifen diese Tiefe erreicht
+            (gesetzliches Minimum 1,6 mm). Leer = keine Warnung.
+          </p>
         </div>
       </div>
       <div className="space-y-2">
@@ -282,24 +299,37 @@ export function TireMeasurementForm({
           ))}
         </Select>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="m-date">Datum *</Label>
-          <Input id="m-date" name="date" type="date" required defaultValue={today()} />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="m-treadDepthMm">Profiltiefe *</Label>
-          <InputUnit
-            id="m-treadDepthMm"
-            name="treadDepthMm"
-            type="number"
-            step="0.1"
-            min={0}
-            required
-            unit="mm"
-          />
-        </div>
+      <div className="space-y-2">
+        <Label htmlFor="m-date">Datum *</Label>
+        <Input id="m-date" name="date" type="date" required defaultValue={today()} />
       </div>
+      <fieldset className="space-y-2">
+        <legend className="text-sm text-muted-foreground">
+          Profiltiefe je Reifen (mind. einen Wert) *
+        </legend>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[
+            { name: "treadFrontLeftMm", label: "Vorne links" },
+            { name: "treadFrontRightMm", label: "Vorne rechts" },
+            { name: "treadRearLeftMm", label: "Hinten links" },
+            { name: "treadRearRightMm", label: "Hinten rechts" },
+          ].map((pos) => (
+            <div key={pos.name} className="space-y-1.5">
+              <Label htmlFor={`m-${pos.name}`} className="text-xs">
+                {pos.label}
+              </Label>
+              <InputUnit
+                id={`m-${pos.name}`}
+                name={pos.name}
+                type="number"
+                step="0.1"
+                min={0}
+                unit="mm"
+              />
+            </div>
+          ))}
+        </div>
+      </fieldset>
       <OdometerCapture onDetect={setOdometer} />
       <div className="space-y-2">
         <Label htmlFor="m-odometer">Kilometerstand</Label>

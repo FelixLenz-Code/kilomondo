@@ -11,10 +11,12 @@ import {
   consumptionUnit,
   fuelUnit,
 } from "@/lib/stats";
+import { tireWearSeries } from "@/lib/tires";
 import { StatCard } from "@/components/stat-card";
 import { ConsumptionChart } from "@/components/charts/consumption-chart";
 import { CostChart } from "@/components/charts/cost-chart";
 import { PriceChart } from "@/components/charts/price-chart";
+import { TireWearCard } from "@/components/charts/tire-wear-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, formatDate, formatKm, formatNumber } from "@/lib/utils";
 
@@ -33,6 +35,8 @@ export default async function VehicleDashboard({
       repairEntries: true,
       cleaningEntries: true,
       expenses: true,
+      tireSets: true,
+      tireMeasurements: true,
     },
   });
   if (!vehicle) return null;
@@ -66,6 +70,10 @@ export default async function VehicleDashboard({
   }));
   const extremes = fuelExtremes(data);
   const yearly = yearlyCostSeries(data);
+  const tireWear =
+    vehicle.tireTracking && vehicle.tireMeasurements.length > 0
+      ? tireWearSeries(vehicle.tireSets, vehicle.tireMeasurements)
+      : null;
 
   return (
     <div className="space-y-6">
@@ -169,6 +177,9 @@ export default async function VehicleDashboard({
             <PriceChart data={priceData} unit={funit} />
           </CardContent>
         </Card>
+        {tireWear && (
+          <TireWearCard sets={tireWear.sets} lines={tireWear.lines} data={tireWear.data} />
+        )}
       </div>
 
       {yearly.length > 0 && (
