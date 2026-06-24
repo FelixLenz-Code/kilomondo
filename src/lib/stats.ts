@@ -1,5 +1,6 @@
 import type {
   CleaningEntry,
+  Expense,
   FuelEntry,
   OdometerEntry,
   RepairEntry,
@@ -12,6 +13,8 @@ export type VehicleData = {
   odometerEntries: OdometerEntry[];
   repairEntries: RepairEntry[];
   cleaningEntries: CleaningEntry[];
+  // Optional general costs (tax, insurance, fees). Older callers may omit this.
+  expenses?: Expense[];
 };
 
 export type VehicleStats = {
@@ -22,6 +25,7 @@ export type VehicleStats = {
   totalFuelCost: number;
   totalRepairCost: number;
   totalCleaningCost: number;
+  totalExpenseCost: number;
   totalCost: number;
   avgConsumption: number | null; // L (or kWh) / 100km
   costPerKm: number | null;
@@ -102,7 +106,9 @@ export function computeStats(data: VehicleData): VehicleStats {
   const totalAdblueCost = fuelEntries.reduce((s, f) => s + (f.adbluePrice ?? 0), 0);
   const totalRepairCost = repairEntries.reduce((s, r) => s + r.cost, 0);
   const totalCleaningCost = cleaningEntries.reduce((s, c) => s + c.cost, 0);
-  const totalCost = totalFuelCost + totalAdblueCost + totalRepairCost + totalCleaningCost;
+  const totalExpenseCost = (data.expenses ?? []).reduce((s, e) => s + e.amount, 0);
+  const totalCost =
+    totalFuelCost + totalAdblueCost + totalRepairCost + totalCleaningCost + totalExpenseCost;
 
   const points = consumptionSeries(data);
   const avgConsumption =
@@ -122,6 +128,7 @@ export function computeStats(data: VehicleData): VehicleStats {
     totalFuelCost,
     totalRepairCost,
     totalCleaningCost,
+    totalExpenseCost,
     totalCost,
     avgConsumption,
     costPerKm,
@@ -134,7 +141,123 @@ export type MonthlyCost = {
   fuel: number;
   repair: number;
   cleaning: number;
+  other: number; // tax, insurance, fees (Expense rows)
 };
+
+export type FuelPricePoint = {
+  date: string; // ISO date
+  price: number; // price per unit paid at this fill
+};
+
+/**
+ * Price per unit paid over time (every car/canister fill), oldest first.
+ * Useful to visualise how fuel/energy prices developed.
+ */
+export function fuelPriceSeries(data: VehicleData): FuelPricePoint[] {
+  return [...data.fuelEntries]
+    .filter((f) => f.pricePerUnit > 0)
+    .sort((a, b) => a.date.getTime() - b.date.getTime())
+    .map((f) => ({ date: f.date.toISOString(), price: f.pricePerUnit }));
+}
+
+export type FuelExtremes = {
+  cheapest: { price: number; date: string } | null;
+  priciest: { price: number; date: string } | null;
+};
+
+/** Cheapest and most expensive price per unit ever paid. */
+export function fuelExtremes(data: VehicleData): FuelExtremes {
+  const fills = data.fuelEntries.filter((f) => f.pricePerUnit > 0);
+  if (fills.length === 0) return { cheapest: null, priciest: null };
+  let cheapest = fills[0];
+  let priciest = fills[0];
+  for (const f of fills) {
+    if (f.pricePerUnit < cheapest.pricePerUnit) cheapest = f;
+    if (f.pricePerUnit > priciest.pricePerUnit) priciest = f;
+  }
+  return {
+    cheapest: { price: cheapest.pricePerUnit, date: cheapest.date.toISOString() },
+    priciest: { price: priciest.pricePerUnit, date: priciest.date.toISOString() },
+  };
+}
+
+export type YearlyCost = {
+  year: number;
+  fuel: number;
+  adblue: number;
+  repair: number;
+  cleaning: number;
+  other: number; // tax, insurance, fees
+  total: number;
+  distance: number; // km driven within the year (best-effort from odometer log)
+  costPerKm: number | null;
+};
+
+/**
+ * Per-year cost breakdown plus distance driven that year. Distance is derived
+ * from the cumulative-max odometer at each year boundary, so it tolerates
+ * out-of-order and partial odometer data.
+ */
+export function yearlyCostSeries(data: VehicleData): YearlyCost[] {
+  const { vehicle, fuelEntries, repairEntries, cleaningEntries, odometerEntries } = data;
+
+  const map = new Map<number, YearlyCost>();
+  const bucket = (year: number) => {
+    if (!map.has(year)) {
+      map.set(year, {
+        year,
+        fuel: 0,
+        adblue: 0,
+        repair: 0,
+        cleaning: 0,
+        other: 0,
+        total: 0,
+        distance: 0,
+        costPerKm: null,
+      });
+    }
+    return map.get(year)!;
+  };
+
+  for (const f of fuelEntries) {
+    const b = bucket(f.date.getFullYear());
+    b.fuel += f.totalCost;
+    b.adblue += f.adbluePrice ?? 0;
+  }
+  for (const r of repairEntries) bucket(r.date.getFullYear()).repair += r.cost;
+  for (const c of cleaningEntries) bucket(c.date.getFullYear()).cleaning += c.cost;
+  for (const e of data.expenses ?? []) bucket(e.date.getFullYear()).other += e.amount;
+
+  // Odometer readings with a date, used to estimate distance per year.
+  const odoPoints: { date: Date; odometer: number }[] = [
+    ...fuelEntries.map((f) => ({ date: f.date, odometer: f.odometer })),
+    ...odometerEntries.map((o) => ({ date: o.date, odometer: o.odometer })),
+    ...repairEntries.flatMap((r) => (r.odometer != null ? [{ date: r.date, odometer: r.odometer }] : [])),
+    ...cleaningEntries.flatMap((c) => (c.odometer != null ? [{ date: c.date, odometer: c.odometer }] : [])),
+  ];
+
+  const years = [...map.keys()].sort((a, b) => a - b);
+  // Cumulative-max odometer at the end of a given year.
+  const odoAtYearEnd = (year: number): number | null => {
+    const cutoff = new Date(year + 1, 0, 1).getTime();
+    let max: number | null = null;
+    for (const p of odoPoints) {
+      if (p.date.getTime() < cutoff && (max == null || p.odometer > max)) max = p.odometer;
+    }
+    return max;
+  };
+
+  for (const year of years) {
+    const b = map.get(year)!;
+    b.total = b.fuel + b.adblue + b.repair + b.cleaning + b.other;
+    const end = odoAtYearEnd(year);
+    const prevEnd = odoAtYearEnd(year - 1) ?? vehicle.initialOdometer;
+    if (end != null && end > prevEnd) b.distance = end - prevEnd;
+    b.costPerKm = b.distance > 0 ? b.total / b.distance : null;
+  }
+
+  return years.map((y) => map.get(y)!).reverse(); // newest year first
+}
 
 export function monthlyCostSeries(data: VehicleData): MonthlyCost[] {
   const map = new Map<string, MonthlyCost>();
@@ -142,13 +265,14 @@ export function monthlyCostSeries(data: VehicleData): MonthlyCost[] {
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   const bucket = (d: Date) => {
     const k = key(d);
-    if (!map.has(k)) map.set(k, { month: k, fuel: 0, repair: 0, cleaning: 0 });
+    if (!map.has(k)) map.set(k, { month: k, fuel: 0, repair: 0, cleaning: 0, other: 0 });
     return map.get(k)!;
   };
 
   for (const f of data.fuelEntries) bucket(f.date).fuel += f.totalCost;
   for (const r of data.repairEntries) bucket(r.date).repair += r.cost;
   for (const c of data.cleaningEntries) bucket(c.date).cleaning += c.cost;
+  for (const e of data.expenses ?? []) bucket(e.date).other += e.amount;
 
   return [...map.values()].sort((a, b) => a.month.localeCompare(b.month));
 }

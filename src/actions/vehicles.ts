@@ -28,6 +28,14 @@ function parseVehicle(formData: FormData) {
     color: formData.get("color"),
     adblueTracking:
       formData.get("adblueTracking") === "on" || formData.get("adblueTracking") === "true",
+    tireTracking:
+      formData.get("tireTracking") === "on" || formData.get("tireTracking") === "true",
+    tripLogging:
+      formData.get("tripLogging") === "on" || formData.get("tripLogging") === "true",
+    leasingTracking:
+      formData.get("leasingTracking") === "on" || formData.get("leasingTracking") === "true",
+    evTracking:
+      formData.get("evTracking") === "on" || formData.get("evTracking") === "true",
     initialOdometer: formData.get("initialOdometer"),
   });
 }
@@ -146,12 +154,14 @@ export async function deleteVehicleAction(vehicleId: string): Promise<void> {
   if (!owned) redirect("/");
 
   // Collect and remove all images belonging to this vehicle.
-  const [repairs, cleanings] = await Promise.all([
+  const [repairs, cleanings, documents] = await Promise.all([
     db.repairEntry.findMany({ where: { vehicleId }, select: { id: true } }),
     db.cleaningEntry.findMany({ where: { vehicleId }, select: { id: true } }),
+    db.document.findMany({ where: { vehicleId }, select: { id: true } }),
   ]);
 
   const repairIds = repairs.map((r) => r.id);
+  const documentIds = documents.map((d) => d.id);
   await db.vehicle.delete({ where: { id: vehicleId } });
   await db.image.deleteMany({
     where: {
@@ -162,9 +172,14 @@ export async function deleteVehicleAction(vehicleId: string): Promise<void> {
       ],
     },
   });
-  // Attachments have no FK/cascade — remove the repairs' attachments explicitly
-  // so they don't linger in the DB (and remain fetchable) after deletion.
-  await db.attachment.deleteMany({ where: { repairId: { in: repairIds } } });
+  // Attachments have no FK/cascade — remove the repairs' and documents'
+  // attachments explicitly so they don't linger in the DB (and remain
+  // fetchable) after deletion.
+  await db.attachment.deleteMany({
+    where: {
+      OR: [{ repairId: { in: repairIds } }, { documentId: { in: documentIds } }],
+    },
+  });
   revalidatePath("/");
   redirect("/");
 }

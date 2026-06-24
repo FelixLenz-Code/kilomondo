@@ -38,6 +38,10 @@ export const vehicleSchema = z.object({
   fuelType: z.enum(["PETROL", "DIESEL", "ELECTRIC", "HYBRID", "LPG"]),
   color: optionalString,
   adblueTracking: z.coerce.boolean().default(false),
+  tireTracking: z.coerce.boolean().default(false),
+  tripLogging: z.coerce.boolean().default(false),
+  leasingTracking: z.coerce.boolean().default(false),
+  evTracking: z.coerce.boolean().default(false),
   initialOdometer: coerceNumber.int().min(0).default(0),
 });
 
@@ -102,6 +106,117 @@ export const reminderSchema = z.object({
     .transform((v) => v ?? 28),
   intervalDays: optionalInt(1, 3650),
   recurrenceMonths: optionalInt(1, 120),
+});
+
+export const expenseSchema = z.object({
+  date: z.coerce.date(),
+  category: z.enum(["TAX", "INSURANCE", "FEE", "OTHER"]).default("OTHER"),
+  title: optionalString,
+  amount: coerceNumber.min(0),
+  notes: optionalString,
+});
+
+const optionalFloat = z.preprocess(
+  (v) => (v === "" || v == null ? undefined : v),
+  coerceNumber.min(0).optional()
+);
+
+export const leasingSchema = z
+  .object({
+    provider: optionalString,
+    monthlyRate: optionalFloat,
+    downPayment: optionalFloat,
+    startDate: z.coerce.date(),
+    endDate: z.coerce.date(),
+    startOdometer: coerceNumber.int().min(0).default(0),
+    annualKmLimit: z.preprocess(
+      (v) => (v === "" || v == null ? undefined : v),
+      coerceNumber.int().min(0).optional()
+    ),
+    excessKmCost: optionalFloat,
+    notes: optionalString,
+  })
+  .refine((d) => d.endDate > d.startDate, {
+    message: "Vertragsende muss nach dem Beginn liegen.",
+    path: ["endDate"],
+  });
+
+export const chargingSchema = z.object({
+  date: z.coerce.date(),
+  odometer: optionalOdometer,
+  energyKwh: coerceNumber.positive("Energie muss > 0 sein"),
+  pricePerKwh: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    coerceNumber.min(0).optional()
+  ),
+  totalCost: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    coerceNumber.min(0).optional()
+  ),
+  location: z.enum(["HOME", "PUBLIC", "WORK", "OTHER"]).default("HOME"),
+  provider: optionalString,
+  notes: optionalString,
+});
+
+export const tripSchema = z
+  .object({
+    date: z.coerce.date(),
+    startOdometer: coerceNumber.int().min(0),
+    endOdometer: coerceNumber.int().min(0),
+    purpose: z.enum(["BUSINESS", "PRIVATE", "COMMUTE"]).default("BUSINESS"),
+    startLocation: optionalString,
+    endLocation: optionalString,
+    description: optionalString,
+  })
+  .refine((d) => d.endOdometer >= d.startOdometer, {
+    message: "End-km muss ≥ Start-km sein.",
+    path: ["endOdometer"],
+  });
+
+export const documentSchema = z.object({
+  title: z.string().trim().min(1, "Titel erforderlich").max(120),
+  category: z
+    .enum(["REGISTRATION", "INSURANCE", "LICENSE", "WARRANTY", "INVOICE", "OTHER"])
+    .default("OTHER"),
+  issueDate: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.coerce.date().optional()
+  ),
+  expiresAt: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.coerce.date().optional()
+  ),
+  notes: optionalString,
+  // Whether to create/keep an auto-reminder for the expiry date.
+  remind: z.coerce.boolean().default(false),
+  leadDays: z
+    .preprocess((v) => (v === "" || v == null ? undefined : v), coerceNumber.int().min(0).max(365).optional())
+    .transform((v) => v ?? 28),
+});
+
+export const tireSetSchema = z.object({
+  name: z.string().trim().min(1, "Name erforderlich").max(80),
+  season: z.enum(["SUMMER", "WINTER", "ALLSEASON"]).default("SUMMER"),
+  dimension: optionalString,
+  brand: optionalString,
+  purchaseDate: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.coerce.date().optional()
+  ),
+  treadDepthMm: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    coerceNumber.min(0).max(25).optional()
+  ),
+  storageLocation: optionalString,
+  retired: z.coerce.boolean().default(false),
+  notes: optionalString,
+});
+
+export const tireChangeSchema = z.object({
+  tireSetId: z.string().min(1, "Bitte einen Radsatz wählen."),
+  date: z.coerce.date(),
+  odometer: coerceNumber.int().min(0),
+  notes: optionalString,
 });
 
 export const canisterSchema = z.object({

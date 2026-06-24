@@ -17,7 +17,8 @@ import { ensureLogReminder } from "@/lib/reminder-suggestions";
  */
 
 const FORMAT = "carlog-vehicle";
-const VERSION = 2;
+// v4 adds Attachment file bytes (document scans + repair invoices) to the ZIP.
+const VERSION = 4;
 
 const EXT: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -29,6 +30,30 @@ const EXT: Record<string, string> = {
   "video/mp4": "mp4",
 };
 const extFor = (mime: string) => EXT[mime] ?? "bin";
+
+// Attachments keep their original file name, so prefer its extension; fall back
+// to a mime-based one. Used only for the (cosmetic) path inside the ZIP.
+const ATT_EXT: Record<string, string> = {
+  "application/pdf": "pdf",
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/heic": "heic",
+};
+function attExtFor(fileName: string, mime: string): string {
+  const m = /\.([a-z0-9]{1,5})$/i.exec(fileName);
+  return m ? m[1].toLowerCase() : ATT_EXT[mime] ?? "bin";
+}
+
+// Mirrors the upload whitelist in lib/attachments.ts.
+const ATT_ALLOWED = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/heic",
+]);
+const ATT_MAX_BYTES = 20 * 1024 * 1024;
 
 /** Bytes column wants an ArrayBuffer-backed Uint8Array. */
 function toBytes(buf: Buffer): Uint8Array<ArrayBuffer> {
@@ -61,6 +86,13 @@ export async function exportVehicleZip(
       odometerEntries: { orderBy: { date: "asc" } },
       repairEntries: { orderBy: { date: "asc" } },
       cleaningEntries: { orderBy: { date: "asc" } },
+      tireSets: { orderBy: { createdAt: "asc" } },
+      tireChanges: { orderBy: { date: "asc" } },
+      documents: { orderBy: { createdAt: "asc" } },
+      trips: { orderBy: { date: "asc" } },
+      chargingSessions: { orderBy: { date: "asc" } },
+      leasing: true,
+      expenses: { orderBy: { date: "asc" } },
     },
   });
   if (!v) return null;
@@ -105,6 +137,21 @@ export async function exportVehicleZip(
       })
     : [];
 
+  // File attachments (PDFs / photos of invoices, document scans) live in the
+  // Attachment model, linked by repairId or documentId.
+  const repairAttachments = v.repairEntries.length
+    ? await db.attachment.findMany({
+        where: { repairId: { in: v.repairEntries.map((r) => r.id) } },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+  const documentAttachments = v.documents.length
+    ? await db.attachment.findMany({
+        where: { documentId: { in: v.documents.map((d) => d.id) } },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+
   const repairEntries = v.repairEntries.map((r, i) => {
     const images = repairImages
       .filter((im) => im.repairId === r.id)
@@ -112,6 +159,13 @@ export async function exportVehicleZip(
         const file = `repair-${i}-${(im.kind ?? "after").toLowerCase()}-${n}.${extFor(im.mimeType)}`;
         dir.file(file, Buffer.from(im.data), store);
         return { kind: im.kind, file: `files/${file}`, mimeType: im.mimeType };
+      });
+    const attachments = repairAttachments
+      .filter((a) => a.repairId === r.id)
+      .map((a, n) => {
+        const file = `repair-att-${i}-${n}.${attExtFor(a.fileName, a.mimeType)}`;
+        dir.file(file, Buffer.from(a.data), store);
+        return { file: `files/${file}`, fileName: a.fileName, mimeType: a.mimeType };
       });
     return {
       date: r.date.toISOString(),
@@ -123,6 +177,25 @@ export async function exportVehicleZip(
       workshop: r.workshop,
       notes: r.notes,
       images,
+      attachments,
+    };
+  });
+
+  const documents = v.documents.map((d, i) => {
+    const attachments = documentAttachments
+      .filter((a) => a.documentId === d.id)
+      .map((a, n) => {
+        const file = `doc-att-${i}-${n}.${attExtFor(a.fileName, a.mimeType)}`;
+        dir.file(file, Buffer.from(a.data), store);
+        return { file: `files/${file}`, fileName: a.fileName, mimeType: a.mimeType };
+      });
+    return {
+      title: d.title,
+      category: d.category,
+      issueDate: d.issueDate ? d.issueDate.toISOString() : null,
+      expiresAt: d.expiresAt ? d.expiresAt.toISOString() : null,
+      notes: d.notes,
+      attachments,
     };
   });
 
@@ -192,10 +265,75 @@ export async function exportVehicleZip(
       fuelType: v.fuelType,
       color: v.color,
       initialOdometer: v.initialOdometer,
+      adblueTracking: v.adblueTracking,
+      tireTracking: v.tireTracking,
+      tripLogging: v.tripLogging,
+      leasingTracking: v.leasingTracking,
+      evTracking: v.evTracking,
     },
     cover,
     animation,
     canisters,
+    tireSets: v.tireSets.map((t) => ({
+      key: t.id,
+      name: t.name,
+      season: t.season,
+      dimension: t.dimension,
+      brand: t.brand,
+      purchaseDate: t.purchaseDate ? t.purchaseDate.toISOString() : null,
+      treadDepthMm: t.treadDepthMm,
+      storageLocation: t.storageLocation,
+      retired: t.retired,
+      notes: t.notes,
+    })),
+    tireChanges: v.tireChanges.map((c) => ({
+      tireSet: c.tireSetId,
+      date: c.date.toISOString(),
+      odometer: c.odometer,
+      notes: c.notes,
+    })),
+    // Document metadata + their file attachments (scans/PDFs), bytes stored in
+    // the ZIP under files/doc-att-*.
+    documents,
+    trips: v.trips.map((t) => ({
+      date: t.date.toISOString(),
+      startOdometer: t.startOdometer,
+      endOdometer: t.endOdometer,
+      purpose: t.purpose,
+      startLocation: t.startLocation,
+      endLocation: t.endLocation,
+      description: t.description,
+    })),
+    chargingSessions: v.chargingSessions.map((c) => ({
+      date: c.date.toISOString(),
+      odometer: c.odometer,
+      energyKwh: c.energyKwh,
+      pricePerKwh: c.pricePerKwh,
+      totalCost: c.totalCost,
+      location: c.location,
+      provider: c.provider,
+      notes: c.notes,
+    })),
+    expenses: v.expenses.map((e) => ({
+      date: e.date.toISOString(),
+      category: e.category,
+      title: e.title,
+      amount: e.amount,
+      notes: e.notes,
+    })),
+    leasing: v.leasing
+      ? {
+          provider: v.leasing.provider,
+          monthlyRate: v.leasing.monthlyRate,
+          downPayment: v.leasing.downPayment,
+          startDate: v.leasing.startDate.toISOString(),
+          endDate: v.leasing.endDate.toISOString(),
+          startOdometer: v.leasing.startOdometer,
+          annualKmLimit: v.leasing.annualKmLimit,
+          excessKmCost: v.leasing.excessKmCost,
+          notes: v.leasing.notes,
+        }
+      : null,
     fuelEntries: v.fuelEntries.map((f) => ({
       date: f.date.toISOString(),
       odometer: f.odometer,
@@ -225,6 +363,11 @@ export async function exportVehicleZip(
 // ---------------- import ----------------
 
 const imageRef = z.object({ file: z.string(), mimeType: z.string() });
+const attachmentRef = z.object({
+  file: z.string(),
+  fileName: z.string().max(255).default("anhang"),
+  mimeType: z.string(),
+});
 const kind = z.enum(["BEFORE", "AFTER"]).nullish();
 const num = z.number().finite();
 
@@ -241,6 +384,11 @@ const manifestSchema = z.object({
     fuelType: z.enum(["PETROL", "DIESEL", "ELECTRIC", "HYBRID", "LPG"]),
     color: z.string().nullish(),
     initialOdometer: z.number().int().min(0).default(0),
+    adblueTracking: z.boolean().default(false),
+    tireTracking: z.boolean().default(false),
+    tripLogging: z.boolean().default(false),
+    leasingTracking: z.boolean().default(false),
+    evTracking: z.boolean().default(false),
   }),
   cover: imageRef.nullish(),
   animation: z
@@ -288,6 +436,97 @@ const manifestSchema = z.object({
   odometerEntries: z
     .array(z.object({ date: z.string(), odometer: num.int(), note: z.string().nullish() }))
     .default([]),
+  tireSets: z
+    .array(
+      z.object({
+        key: z.string(),
+        name: z.string().min(1).max(120),
+        season: z.enum(["SUMMER", "WINTER", "ALLSEASON"]).default("SUMMER"),
+        dimension: z.string().nullish(),
+        brand: z.string().nullish(),
+        purchaseDate: z.string().nullish(),
+        treadDepthMm: num.nullish(),
+        storageLocation: z.string().nullish(),
+        retired: z.boolean().default(false),
+        notes: z.string().nullish(),
+      })
+    )
+    .default([]),
+  tireChanges: z
+    .array(
+      z.object({
+        tireSet: z.string(),
+        date: z.string(),
+        odometer: num.int(),
+        notes: z.string().nullish(),
+      })
+    )
+    .default([]),
+  documents: z
+    .array(
+      z.object({
+        title: z.string().min(1).max(160),
+        category: z
+          .enum(["REGISTRATION", "INSURANCE", "LICENSE", "WARRANTY", "INVOICE", "OTHER"])
+          .default("OTHER"),
+        issueDate: z.string().nullish(),
+        expiresAt: z.string().nullish(),
+        notes: z.string().nullish(),
+        attachments: z.array(attachmentRef).default([]),
+      })
+    )
+    .default([]),
+  expenses: z
+    .array(
+      z.object({
+        date: z.string(),
+        category: z.enum(["TAX", "INSURANCE", "FEE", "OTHER"]).default("OTHER"),
+        title: z.string().nullish(),
+        amount: num,
+        notes: z.string().nullish(),
+      })
+    )
+    .default([]),
+  leasing: z
+    .object({
+      provider: z.string().nullish(),
+      monthlyRate: num.nullish(),
+      downPayment: num.nullish(),
+      startDate: z.string(),
+      endDate: z.string(),
+      startOdometer: num.int().default(0),
+      annualKmLimit: num.int().nullish(),
+      excessKmCost: num.nullish(),
+      notes: z.string().nullish(),
+    })
+    .nullish(),
+  trips: z
+    .array(
+      z.object({
+        date: z.string(),
+        startOdometer: num.int(),
+        endOdometer: num.int(),
+        purpose: z.enum(["BUSINESS", "PRIVATE", "COMMUTE"]).default("BUSINESS"),
+        startLocation: z.string().nullish(),
+        endLocation: z.string().nullish(),
+        description: z.string().nullish(),
+      })
+    )
+    .default([]),
+  chargingSessions: z
+    .array(
+      z.object({
+        date: z.string(),
+        odometer: num.int().nullish(),
+        energyKwh: num,
+        pricePerKwh: num.nullish(),
+        totalCost: num.nullish(),
+        location: z.enum(["HOME", "PUBLIC", "WORK", "OTHER"]).default("HOME"),
+        provider: z.string().nullish(),
+        notes: z.string().nullish(),
+      })
+    )
+    .default([]),
   repairEntries: z
     .array(
       z.object({
@@ -300,6 +539,7 @@ const manifestSchema = z.object({
         workshop: z.string().nullish(),
         notes: z.string().nullish(),
         images: z.array(imageRef.extend({ kind })).default([]),
+        attachments: z.array(attachmentRef).default([]),
       })
     )
     .default([]),
@@ -368,6 +608,26 @@ export async function importVehicleZip(
     return img.id;
   };
 
+  const createAttachment = async (
+    ref: { file: string; fileName: string; mimeType: string },
+    link: { repairId?: string; documentId?: string }
+  ) => {
+    if (!ATT_ALLOWED.has(ref.mimeType)) return;
+    const f = zip.file(ref.file);
+    if (!f) return;
+    const data = await f.async("nodebuffer");
+    if (data.length === 0 || data.length > ATT_MAX_BYTES) return;
+    await db.attachment.create({
+      data: {
+        mimeType: ref.mimeType,
+        fileName: ref.fileName,
+        size: data.length,
+        data: toBytes(data),
+        ...link,
+      },
+    });
+  };
+
   const coverImageId = await createImage(manifest.cover);
   let animationVideoId: string | null = null;
   let animationPosterId: string | null = null;
@@ -390,6 +650,11 @@ export async function importVehicleZip(
       fuelType: manifest.vehicle.fuelType,
       color: manifest.vehicle.color ?? null,
       initialOdometer: manifest.vehicle.initialOdometer,
+      adblueTracking: manifest.vehicle.adblueTracking,
+      tireTracking: manifest.vehicle.tireTracking,
+      tripLogging: manifest.vehicle.tripLogging,
+      leasingTracking: manifest.vehicle.leasingTracking,
+      evTracking: manifest.vehicle.evTracking,
       coverImageId,
       animationVideoId,
       animationPosterId,
@@ -454,6 +719,118 @@ export async function importVehicleZip(
     });
   }
 
+  // Recreate tire sets (mapping export keys to fresh ids), then their changes.
+  const tireSetIdByKey = new Map<string, string>();
+  for (const t of manifest.tireSets) {
+    const created = await db.tireSet.create({
+      data: {
+        vehicleId: vehicle.id,
+        name: t.name,
+        season: t.season,
+        dimension: t.dimension ?? null,
+        brand: t.brand ?? null,
+        purchaseDate: t.purchaseDate ? new Date(t.purchaseDate) : null,
+        treadDepthMm: t.treadDepthMm ?? null,
+        storageLocation: t.storageLocation ?? null,
+        retired: t.retired,
+        notes: t.notes ?? null,
+      },
+    });
+    tireSetIdByKey.set(t.key, created.id);
+  }
+  const tireChanges = manifest.tireChanges
+    .map((c) => ({ ...c, setId: tireSetIdByKey.get(c.tireSet) }))
+    .filter((c): c is typeof c & { setId: string } => !!c.setId);
+  if (tireChanges.length) {
+    await db.tireChange.createMany({
+      data: tireChanges.map((c) => ({
+        vehicleId: vehicle.id,
+        tireSetId: c.setId,
+        date: new Date(c.date),
+        odometer: c.odometer,
+        notes: c.notes ?? null,
+      })),
+    });
+  }
+
+  if (manifest.trips.length) {
+    await db.trip.createMany({
+      data: manifest.trips.map((t) => ({
+        vehicleId: vehicle.id,
+        date: new Date(t.date),
+        startOdometer: t.startOdometer,
+        endOdometer: t.endOdometer,
+        purpose: t.purpose,
+        startLocation: t.startLocation ?? null,
+        endLocation: t.endLocation ?? null,
+        description: t.description ?? null,
+      })),
+    });
+  }
+
+  if (manifest.expenses.length) {
+    await db.expense.createMany({
+      data: manifest.expenses.map((e) => ({
+        vehicleId: vehicle.id,
+        date: new Date(e.date),
+        category: e.category,
+        title: e.title ?? null,
+        amount: e.amount,
+        notes: e.notes ?? null,
+      })),
+    });
+  }
+
+  if (manifest.leasing) {
+    const l = manifest.leasing;
+    await db.leasingContract.create({
+      data: {
+        vehicleId: vehicle.id,
+        provider: l.provider ?? null,
+        monthlyRate: l.monthlyRate ?? null,
+        downPayment: l.downPayment ?? null,
+        startDate: new Date(l.startDate),
+        endDate: new Date(l.endDate),
+        startOdometer: l.startOdometer,
+        annualKmLimit: l.annualKmLimit ?? null,
+        excessKmCost: l.excessKmCost ?? null,
+        notes: l.notes ?? null,
+      },
+    });
+  }
+
+  if (manifest.chargingSessions.length) {
+    await db.chargingSession.createMany({
+      data: manifest.chargingSessions.map((c) => ({
+        vehicleId: vehicle.id,
+        date: new Date(c.date),
+        odometer: c.odometer ?? null,
+        energyKwh: c.energyKwh,
+        pricePerKwh: c.pricePerKwh ?? null,
+        totalCost: c.totalCost ?? null,
+        location: c.location,
+        provider: c.provider ?? null,
+        notes: c.notes ?? null,
+      })),
+    });
+  }
+
+  for (const d of manifest.documents) {
+    const rec = await db.document.create({
+      data: {
+        vehicleId: vehicle.id,
+        title: d.title,
+        category: d.category,
+        issueDate: d.issueDate ? new Date(d.issueDate) : null,
+        expiresAt: d.expiresAt ? new Date(d.expiresAt) : null,
+        notes: d.notes ?? null,
+      },
+    });
+    for (const at of d.attachments) {
+      await createAttachment(at, { documentId: rec.id });
+    }
+  }
+
   for (const r of manifest.repairEntries) {
     const rec = await db.repairEntry.create({
       data: {
@@ -470,6 +847,9 @@ export async function importVehicleZip(
     });
     for (const im of r.images) {
       await createImage(im, { repairId: rec.id, kind: im.kind });
+    }
+    for (const at of r.attachments) {
+      await createAttachment(at, { repairId: rec.id });
     }
   }
 

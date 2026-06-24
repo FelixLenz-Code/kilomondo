@@ -11,6 +11,33 @@ import { ImagePicker } from "@/components/forms/image-picker";
 
 type State = { error?: string };
 
+function FeatureToggle({
+  name,
+  title,
+  description,
+  defaultChecked,
+}: {
+  name: string;
+  title: string;
+  description: string;
+  defaultChecked?: boolean;
+}) {
+  return (
+    <label className="flex items-start gap-2 rounded-lg border border-border/60 bg-background/30 p-3 text-sm">
+      <input
+        type="checkbox"
+        name={name}
+        defaultChecked={defaultChecked ?? false}
+        className="mt-0.5 size-4 accent-[hsl(38_92%_55%)]"
+      />
+      <span>
+        <span className="font-medium">{title}</span>
+        <span className="block text-xs text-muted-foreground">{description}</span>
+      </span>
+    </label>
+  );
+}
+
 export function VehicleForm({
   action,
   vehicle,
@@ -124,21 +151,41 @@ export function VehicleForm({
         </div>
       </div>
 
-      <label className="flex items-start gap-2 rounded-lg border border-border/60 bg-background/30 p-3 text-sm">
-        <input
-          type="checkbox"
+      <fieldset className="space-y-2">
+        <legend className="mb-1 text-sm font-medium text-muted-foreground">
+          Zusatzfunktionen
+        </legend>
+        <FeatureToggle
           name="adblueTracking"
-          defaultChecked={vehicle?.adblueTracking ?? false}
-          className="mt-0.5 size-4 accent-[hsl(38_92%_55%)]"
+          title="AdBlue-Tanken erfassen"
+          description="Blendet bei jeder Tankung ein optionales Feld ein, um zusätzlich getanktes AdBlue mit Preis zu erfassen (ohne Mengenangabe)."
+          defaultChecked={vehicle?.adblueTracking}
         />
-        <span>
-          <span className="font-medium">AdBlue-Tanken erfassen</span>
-          <span className="block text-xs text-muted-foreground">
-            Blendet bei jeder Tankung ein optionales Feld ein, um zusätzlich getanktes
-            AdBlue mit Preis zu erfassen (ohne Mengenangabe).
-          </span>
-        </span>
-      </label>
+        <FeatureToggle
+          name="tireTracking"
+          title="Reifenverwaltung"
+          description="Eigener Tab für Radsätze (Sommer/Winter), Profiltiefe, Einlagerung und Wechsel-Historie mit km pro Satz."
+          defaultChecked={vehicle?.tireTracking}
+        />
+        <FeatureToggle
+          name="tripLogging"
+          title="Fahrtenbuch"
+          description="Eigener Tab zum Erfassen einzelner Fahrten (Strecke, Zweck geschäftlich/privat) – steuerlich auswertbar."
+          defaultChecked={vehicle?.tripLogging}
+        />
+        <FeatureToggle
+          name="evTracking"
+          title="Lade-Tracking (E-Auto)"
+          description="Eigener Tab für Ladevorgänge (kWh, Heim/öffentlich, Preis je kWh, Ladeort). Bei reinen E-Autos wird das Tankbuch ausgeblendet; bei Antrieb „Hybrid“ bleiben Tanken und Laden beide aktiv."
+          defaultChecked={vehicle?.evTracking}
+        />
+        <FeatureToggle
+          name="leasingTracking"
+          title="Leasing / Finanzierung"
+          description="Abschnitt in den Einstellungen für Rate, Laufzeit und km-Budget mit Warnung bei drohenden Mehrkilometern."
+          defaultChecked={vehicle?.leasingTracking}
+        />
+      </fieldset>
 
       <SubmitButton>{submitLabel}</SubmitButton>
     </form>

@@ -13,15 +13,25 @@ export async function GET(
   const attachment = await db.attachment.findUnique({ where: { id } });
   if (!attachment) return new Response("Not found", { status: 404 });
 
-  // Authorize: resolve the owning vehicle via the repair entry and check access.
-  // 404 (not 403) so ids of inaccessible attachments aren't confirmed to exist.
-  if (!attachment.repairId) return new Response("Not found", { status: 404 });
-  const repair = await db.repairEntry.findUnique({
-    where: { id: attachment.repairId },
-    select: { vehicleId: true },
-  });
-  if (!repair) return new Response("Not found", { status: 404 });
-  const access = await getVehicleAccess(repair.vehicleId, user.id);
+  // Authorize: resolve the owning vehicle via the linked repair or document and
+  // check access. 404 (not 403) so ids of inaccessible attachments aren't
+  // confirmed to exist.
+  let vehicleId: string | null = null;
+  if (attachment.repairId) {
+    const repair = await db.repairEntry.findUnique({
+      where: { id: attachment.repairId },
+      select: { vehicleId: true },
+    });
+    vehicleId = repair?.vehicleId ?? null;
+  } else if (attachment.documentId) {
+    const document = await db.document.findUnique({
+      where: { id: attachment.documentId },
+      select: { vehicleId: true },
+    });
+    vehicleId = document?.vehicleId ?? null;
+  }
+  if (!vehicleId) return new Response("Not found", { status: 404 });
+  const access = await getVehicleAccess(vehicleId, user.id);
   if (!access) return new Response("Not found", { status: 404 });
 
   // RFC 5987 encoding so non-ASCII file names survive the header.

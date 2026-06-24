@@ -2,9 +2,10 @@ import { requireUser, vehicleAccessWhere, getVehicleAccess } from "@/lib/auth/gu
 import { db } from "@/lib/db";
 import { fuelUnit } from "@/lib/stats";
 import { canisterState } from "@/lib/canister";
-import { createFuelAction, updateFuelAction, deleteFuelAction } from "@/actions/entries";
+import { createFuelAction, updateFuelAction, deleteFuelAction, importFuelCsvAction } from "@/actions/entries";
 import { createCanisterPourAction } from "@/actions/canisters";
 import { FuelForm, CanisterPourForm } from "@/components/forms/entry-forms";
+import { FuelCsvImport } from "@/components/forms/fuel-csv-import";
 import { CanisterPanel, type CanisterView } from "@/components/canister-panel";
 import { DeleteButton } from "@/components/delete-button";
 import { EditableRow } from "@/components/editable-row";
@@ -99,6 +100,15 @@ export default async function FuelPage({
             </CardHeader>
             <CardContent>
               <CanisterPanel vehicleId={id} unit={unit} canisters={canisters} />
+            </CardContent>
+          </Card>
+
+          <Card className="glass h-fit">
+            <CardHeader>
+              <CardTitle>Tankungen importieren</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <FuelCsvImport action={importFuelCsvAction.bind(null, id)} />
             </CardContent>
           </Card>
         </div>

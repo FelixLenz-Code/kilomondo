@@ -13,3 +13,6 @@ next-env.d.ts
 
 # Large unrelated assets (3D model downloads)
 3d modelle/
+
+# Local docker compose overrides (e.g. publishing the db port for local dev)
+docker-compose.override.yml

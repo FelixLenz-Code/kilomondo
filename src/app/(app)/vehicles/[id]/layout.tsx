@@ -55,7 +55,18 @@ export default async function VehicleLayout({
           }
         />
       </div>
-      <VehicleTabs vehicleId={id} showSettings={isOwner} />
+      <VehicleTabs
+        vehicleId={id}
+        showSettings={isOwner}
+        features={{
+          tires: vehicle.tireTracking,
+          trips: vehicle.tripLogging,
+          charging: vehicle.evTracking,
+          // Pure EV (charging on, not a hybrid) hides the fuel tab; hybrids keep
+          // both fuel and charging.
+          fuel: !vehicle.evTracking || vehicle.fuelType === "HYBRID",
+        }}
+      />
       <div>{children}</div>
     </div>
   );

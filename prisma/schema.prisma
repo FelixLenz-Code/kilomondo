@@ -41,6 +41,41 @@ enum CleaningType {
   FULL
 }
 
+enum TireSeason {
+  SUMMER
+  WINTER
+  ALLSEASON
+}
+
+enum ExpenseCategory {
+  TAX       // Kfz-Steuer
+  INSURANCE // Versicherung
+  FEE       // Gebühren (Zulassung, Vignette, …)
+  OTHER
+}
+
+enum TripPurpose {
+  BUSINESS // geschäftlich
+  PRIVATE  // privat
+  COMMUTE  // Arbeitsweg
+}
+
+enum ChargingLocation {
+  HOME   // zu Hause
+  PUBLIC // öffentlich
+  WORK   // Arbeit
+  OTHER
+}
+
+enum DocumentCategory {
+  REGISTRATION // Zulassung / Fahrzeugschein
+  INSURANCE    // Versicherung
+  LICENSE      // Führerschein
+  WARRANTY     // Garantie
+  INVOICE      // Rechnung / Kaufvertrag
+  OTHER
+}
+
 enum ReminderType {
   INSPECTION // TÜV / HU
   SERVICE    // Wartung / Inspektion
@@ -91,12 +126,14 @@ model Attachment {
   id        String   @id @default(cuid())
   mimeType  String
   fileName  String
-  size      Int
-  data      Bytes
-  createdAt DateTime @default(now())
-  repairId  String?
+  size       Int
+  data       Bytes
+  createdAt  DateTime @default(now())
+  repairId   String?
+  documentId String?
 
   @@index([repairId])
+  @@index([documentId])
 }
 
 model User {
@@ -165,6 +202,11 @@ model Vehicle {
   color          String?
   // Optional: show an "also refueled AdBlue" checkbox + price field on fuel entries.
   adblueTracking Boolean  @default(false)
+  // Optional feature toggles (each unlocks an extra tab/section for this vehicle).
+  tireTracking    Boolean @default(false)
+  tripLogging     Boolean @default(false)
+  leasingTracking Boolean @default(false)
+  evTracking      Boolean @default(false)
   coverImageId   String?
   // Optional 3D intro animation rendered from an uploaded GLB model. The video
   // and its poster frame are stored as Image rows; status tracks the async render.
@@ -182,6 +224,13 @@ model Vehicle {
   cleaningEntries CleaningEntry[]
   shares         VehicleShare[]
   reminders      Reminder[]
+  tireSets       TireSet[]
+  tireChanges    TireChange[]
+  documents      Document[]
+  trips          Trip[]
+  chargingSessions ChargingSession[]
+  leasing        LeasingContract?
+  expenses       Expense[]
 
   @@index([userId])
 }
@@ -337,4 +386,139 @@ model CleaningEntry {
   vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   @@index([vehicleId])
+}
+
+// A general cost not covered by fuel/repair/cleaning — e.g. road tax,
+// insurance, fees. Counted in the total cost of ownership (lib/stats).
+model Expense {
+  id        String          @id @default(cuid())
+  vehicleId String
+  date      DateTime
+  category  ExpenseCategory @default(OTHER)
+  title     String?
+  amount    Float
+  notes     String?
+  createdAt DateTime        @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+}
+
+// A leasing/financing contract for a vehicle (one per vehicle). The km budget
+// vs. actual is derived in lib/leasing from the current odometer.
+model LeasingContract {
+  id            String   @id @default(cuid())
+  vehicleId     String   @unique
+  provider      String?
+  monthlyRate   Float?
+  downPayment   Float? // Anzahlung
+  startDate     DateTime
+  endDate       DateTime
+  startOdometer Int      @default(0)
+  annualKmLimit Int? // contracted km per year
+  excessKmCost  Float? // €/km charged for exceeding the limit
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+// An EV charging session. Separate from FuelEntry so charging-specific details
+// (location, provider, AC/DC) are captured; not part of the consumption stats.
+model ChargingSession {
+  id          String           @id @default(cuid())
+  vehicleId   String
+  date        DateTime
+  odometer    Int?
+  energyKwh   Float
+  pricePerKwh Float?
+  totalCost   Float?
+  location    ChargingLocation @default(HOME)
+  provider    String? // e.g. EnBW, Ionity, Wallbox
+  notes       String?
+  createdAt   DateTime         @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+}
+
+// A single logged trip (Fahrtenbuch). Distance = endOdometer - startOdometer.
+// Purpose enables a business/private split for tax purposes.
+model Trip {
+  id            String      @id @default(cuid())
+  vehicleId     String
+  date          DateTime
+  startOdometer Int
+  endOdometer   Int
+  purpose       TripPurpose @default(BUSINESS)
+  startLocation String?
+  endLocation   String?
+  description   String?
+  createdAt     DateTime    @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+}
+
+// A glovebox document (registration, insurance policy, license, warranty, …).
+// Files are stored as Attachment rows linked by documentId (like repairs).
+// An optional expiry date can spawn a linked auto-reminder (see lib/documents).
+model Document {
+  id         String           @id @default(cuid())
+  vehicleId  String
+  title      String
+  category   DocumentCategory @default(OTHER)
+  issueDate  DateTime?
+  expiresAt  DateTime?
+  notes      String?
+  // Id of the auto-created expiry Reminder, if any (managed in app code).
+  reminderId String?
+  createdAt  DateTime         @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+}
+
+// A set of wheels/tires (e.g. summer alloys, winter steels). Distance driven on
+// a set is derived from the TireChange log (see lib/tires).
+model TireSet {
+  id              String     @id @default(cuid())
+  vehicleId       String
+  name            String
+  season          TireSeason @default(SUMMER)
+  dimension       String? // e.g. "205/55 R16 91V"
+  brand           String?
+  purchaseDate    DateTime?
+  treadDepthMm    Float? // latest known tread depth
+  storageLocation String?
+  retired         Boolean    @default(false)
+  notes           String?
+  createdAt       DateTime   @default(now())
+
+  vehicle Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  changes TireChange[]
+
+  @@index([vehicleId])
+}
+
+// A mount event: records that a given tire set was put on the car at this date
+// and odometer. The currently mounted set is the most recent change.
+model TireChange {
+  id        String   @id @default(cuid())
+  vehicleId String
+  tireSetId String
+  date      DateTime
+  odometer  Int
+  notes     String?
+  createdAt DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  tireSet TireSet @relation(fields: [tireSetId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@index([tireSetId])
 }

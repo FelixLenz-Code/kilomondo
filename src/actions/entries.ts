@@ -19,6 +19,9 @@ import {
   repairSchema,
   cleaningSchema,
 } from "@/lib/validation";
+import { parseFuelCsv } from "@/lib/fuel-csv-import";
+
+const MAX_CSV_BYTES = 5 * 1024 * 1024;
 
 const EPS = 1e-6;
 
@@ -174,6 +177,50 @@ export async function deleteFuelAction(vehicleId: string, id: string) {
   await db.fuelEntry.deleteMany({ where: { id, vehicleId } });
   revalidatePath(`/vehicles/${vehicleId}/fuel`);
   revalidatePath(`/vehicles/${vehicleId}`);
+}
+
+/**
+ * Import fuel entries from a CSV exported by another app (Spritmonitor, Fuelio).
+ * Parses heuristically and adds the rows as regular car fuelings.
+ */
+export async function importFuelCsvAction(
+  vehicleId: string,
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  await assertCanEdit(vehicleId);
+  const file = formData.get("csv");
+  if (!file || typeof file === "string" || file.size === 0) {
+    return { error: "Bitte eine CSV-Datei auswählen." };
+  }
+  if (file.size > MAX_CSV_BYTES) return { error: "Datei zu groß (max. 5 MB)." };
+
+  const text = await file.text();
+  const { entries, skipped, error } = parseFuelCsv(text);
+  if (error) return { error };
+  if (entries.length === 0) {
+    return { error: "Keine gültigen Tankungen gefunden." };
+  }
+
+  await db.fuelEntry.createMany({
+    data: entries.map((e) => ({
+      vehicleId,
+      date: e.date,
+      odometer: e.odometer,
+      amount: e.amount,
+      pricePerUnit: e.pricePerUnit,
+      totalCost: e.totalCost,
+      isFullTank: e.isFullTank,
+      station: e.station ?? null,
+      notes: e.notes ?? null,
+    })),
+  });
+
+  revalidatePath(`/vehicles/${vehicleId}/fuel`);
+  revalidatePath(`/vehicles/${vehicleId}`);
+  return {
+    success: `${entries.length} Tankungen importiert${skipped ? `, ${skipped} Zeilen übersprungen` : ""}.`,
+  };
 }
 
 /* ---------------- Odometer ---------------- */

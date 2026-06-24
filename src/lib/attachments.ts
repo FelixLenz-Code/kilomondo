@@ -42,10 +42,12 @@ function sanitizeFileName(value: unknown, mimeType: string): string {
  * with its original file name (parallel arrays, read with formData.getAll).
  * Invalid / oversized / disallowed entries are skipped.
  */
-export async function saveRepairAttachments(
+type AttachmentLink = { repairId: string } | { documentId: string };
+
+async function saveAttachments(
   values: unknown[],
   names: unknown[],
-  repairId: string
+  link: AttachmentLink
 ): Promise<void> {
   for (let i = 0; i < values.length; i++) {
     const parsed = parseDataUrl(values[i]);
@@ -56,10 +58,18 @@ export async function saveRepairAttachments(
         fileName: sanitizeFileName(names[i], parsed.mimeType),
         size: parsed.data.byteLength,
         data: parsed.data,
-        repairId,
+        ...link,
       },
     });
   }
+}
+
+export async function saveRepairAttachments(
+  values: unknown[],
+  names: unknown[],
+  repairId: string
+): Promise<void> {
+  await saveAttachments(values, names, { repairId });
 }
 
 export async function deleteRepairAttachments(repairId: string): Promise<void> {
@@ -82,4 +92,32 @@ export async function syncRepairAttachments(
       : { repairId },
   });
   await saveRepairAttachments(newValues, newNames, repairId);
+}
+
+/* ---------------- Document attachments (glovebox) ---------------- */
+
+export async function saveDocumentAttachments(
+  values: unknown[],
+  names: unknown[],
+  documentId: string
+): Promise<void> {
+  await saveAttachments(values, names, { documentId });
+}
+
+export async function deleteDocumentAttachments(documentId: string): Promise<void> {
+  await db.attachment.deleteMany({ where: { documentId } });
+}
+
+export async function syncDocumentAttachments(
+  documentId: string,
+  keepIds: string[],
+  newValues: unknown[],
+  newNames: unknown[]
+): Promise<void> {
+  await db.attachment.deleteMany({
+    where: keepIds.length
+      ? { documentId, id: { notIn: keepIds } }
+      : { documentId },
+  });
+  await saveDocumentAttachments(newValues, newNames, documentId);
 }

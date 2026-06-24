@@ -1,7 +1,32 @@
 import "server-only";
+import type {
+  ChargingSession,
+  Document,
+  Expense,
+  LeasingContract,
+  TireChange,
+  TireSet,
+  Trip,
+} from "@prisma/client";
 import { db } from "@/lib/db";
 import { computeStats, fuelUnit, consumptionUnit, type VehicleData } from "@/lib/stats";
+import { summariseTireSets, tireSeasonLabel } from "@/lib/tires";
+import { tripPurposeLabel, summariseTrips } from "@/lib/trips";
+import { summariseCharging, chargingLocationLabel } from "@/lib/charging";
+import { expenseCategoryLabel } from "@/lib/expenses";
+import { documentCategoryLabel } from "@/lib/documents";
+import { leasingStatus } from "@/lib/leasing";
 import { formatCurrency, formatDate, formatKm, formatNumber } from "@/lib/utils";
+
+type PdfData = VehicleData & {
+  expenses: Expense[];
+  tireSets: TireSet[];
+  tireChanges: TireChange[];
+  trips: Trip[];
+  chargingSessions: ChargingSession[];
+  documents: Document[];
+  leasing: LeasingContract | null;
+};
 
 /**
  * Build a clean, print-friendly A4 overview of a vehicle (details, key figures
@@ -44,10 +69,16 @@ function slugify(name: string): string {
   );
 }
 
-function buildHtml(data: VehicleData): string {
+function buildHtml(data: PdfData): string {
   const v = data.vehicle;
   const stats = computeStats(data);
   const unit = fuelUnit(v);
+
+  // Mirror the app's tab logic: a pure EV (charging on, not a hybrid) has no
+  // fuel log, so the fuel key figures and table are dropped from the report.
+  const showFuel = !v.evTracking || v.fuelType === "HYBRID";
+  const showCharging = v.evTracking;
+  const charging = data.chargingSessions.length ? summariseCharging(data.chargingSessions) : null;
 
   const detail = (label: string, value: string) =>
     `<div class="d"><span class="dl">${label}</span><span class="dv">${value}</span></div>`;
@@ -64,13 +95,17 @@ function buildHtml(data: VehicleData): string {
   const cards = [
     stat("Aktueller km-Stand", formatKm(stats.currentOdometer)),
     stat("Gefahrene Strecke", formatKm(stats.totalDistance)),
-    stat(`Ø Verbrauch`, stats.avgConsumption != null ? `${formatNumber(stats.avgConsumption, 1)} ${consumptionUnit(v)}` : "–"),
-    stat("Tankkosten", formatCurrency(stats.totalFuelCost)),
+    showFuel ? stat(`Ø Verbrauch`, stats.avgConsumption != null ? `${formatNumber(stats.avgConsumption, 1)} ${consumptionUnit(v)}` : "–") : "",
+    showFuel ? stat("Tankkosten", formatCurrency(stats.totalFuelCost)) : "",
+    showCharging && charging ? stat("Geladene Energie", `${formatNumber(charging.totalKwh, 1)} kWh`) : "",
+    showCharging && charging ? stat("Ladekosten", formatCurrency(charging.totalCost)) : "",
     stat("Reparaturkosten", formatCurrency(stats.totalRepairCost)),
     stat("Pflegekosten", formatCurrency(stats.totalCleaningCost)),
+    stats.totalExpenseCost > 0 ? stat("Steuer/Versicherung", formatCurrency(stats.totalExpenseCost)) : "",
     stat("Gesamtkosten", formatCurrency(stats.totalCost)),
     stat("Kosten / km", stats.costPerKm != null ? formatCurrency(stats.costPerKm) : "–"),
-    stat(`Ø Preis / ${unit}`, stats.avgPricePerUnit != null ? `${formatNumber(stats.avgPricePerUnit, 3)} €` : "–"),
+    showFuel ? stat(`Ø Preis / ${unit}`, stats.avgPricePerUnit != null ? `${formatNumber(stats.avgPricePerUnit, 3)} €` : "–") : "",
+    showCharging && charging && charging.avgPricePerKwh != null ? stat("Ø Preis / kWh", `${formatNumber(charging.avgPricePerKwh, 3)} €`) : "",
   ].join("");
 
   const fuelRows = data.fuelEntries
@@ -134,6 +169,95 @@ function buildHtml(data: VehicleData): string {
       </table>`
     : `<p class="empty">Keine Pflege-Einträge erfasst.</p>`;
 
+  // ---- Optional extra sections (only rendered when they hold data) ----
+
+  const expenseSection = data.expenses.length
+    ? `<section><h2>Steuer, Versicherung &amp; Co. (${data.expenses.length})</h2><table>
+        <thead><tr><th>Datum</th><th>Kategorie</th><th>Bezeichnung</th><th class="r">Betrag</th></tr></thead>
+        <tbody>${data.expenses
+          .map(
+            (e) => `<tr><td>${formatDate(e.date)}</td><td>${esc(expenseCategoryLabel(e.category))}</td><td>${esc(e.title ?? "")}</td><td class="r">${formatCurrency(e.amount)}</td></tr>`
+          )
+          .join("")}</tbody>
+        <tfoot><tr><td colspan="3">Summe</td><td class="r">${formatCurrency(stats.totalExpenseCost)}</td></tr></tfoot>
+      </table></section>`
+    : "";
+
+  const currentOdometer = stats.currentOdometer;
+
+  let tireSection = "";
+  if (data.tireSets.length) {
+    const summaries = summariseTireSets(data.tireSets, data.tireChanges, currentOdometer);
+    tireSection = `<section><h2>Reifen (${data.tireSets.length})</h2><table>
+        <thead><tr><th>Radsatz</th><th>Saison</th><th>Größe</th><th>Profil</th><th class="r">gefahren</th><th>Status</th></tr></thead>
+        <tbody>${summaries
+          .map(
+            (s) => `<tr><td>${esc(s.name)}</td><td>${esc(tireSeasonLabel(s.season))}</td><td>${esc(s.dimension ?? "")}</td><td>${s.treadDepthMm != null ? `${formatNumber(s.treadDepthMm, 1)} mm` : "–"}</td><td class="r">${formatKm(s.mountedKm)}</td><td>${s.isCurrent ? "Aufgezogen" : s.retired ? "Ausgemustert" : ""}</td></tr>`
+          )
+          .join("")}</tbody>
+      </table></section>`;
+  }
+
+  let tripSection = "";
+  if (data.trips.length) {
+    const ts = summariseTrips(data.trips);
+    tripSection = `<section><h2>Fahrtenbuch (${data.trips.length})</h2>
+      <p class="meta">Geschäftlich ${formatKm(ts.business)} · Privat ${formatKm(ts.private)} · Arbeitsweg ${formatKm(ts.commute)} · Gesamt ${formatKm(ts.total)}</p>
+      <table>
+        <thead><tr><th>Datum</th><th>Zweck</th><th>Von → Nach</th><th class="r">Strecke</th></tr></thead>
+        <tbody>${data.trips
+          .map(
+            (t) => `<tr><td>${formatDate(t.date)}</td><td>${esc(tripPurposeLabel(t.purpose))}</td><td>${esc([t.startLocation, t.endLocation].filter(Boolean).join(" → "))}</td><td class="r">${formatKm(Math.max(0, t.endOdometer - t.startOdometer))}</td></tr>`
+          )
+          .join("")}</tbody>
+      </table></section>`;
+  }
+
+  let chargeSection = "";
+  if (data.chargingSessions.length) {
+    const cs = summariseCharging(data.chargingSessions);
+    chargeSection = `<section><h2>Ladevorgänge (${data.chargingSessions.length})</h2>
+      <p class="meta">Gesamt ${formatNumber(cs.totalKwh, 1)} kWh · ${formatCurrency(cs.totalCost)}${cs.avgPricePerKwh != null ? ` · Ø ${formatNumber(cs.avgPricePerKwh, 3)} €/kWh` : ""}</p>
+      <table>
+        <thead><tr><th>Datum</th><th>Ort</th><th class="r">kWh</th><th class="r">€/kWh</th><th class="r">Kosten</th><th>Anbieter</th></tr></thead>
+        <tbody>${data.chargingSessions
+          .map(
+            (c) => `<tr><td>${formatDate(c.date)}</td><td>${esc(chargingLocationLabel(c.location))}</td><td class="r">${formatNumber(c.energyKwh, 2)}</td><td class="r">${c.pricePerKwh != null ? formatNumber(c.pricePerKwh, 3) : "–"}</td><td class="r">${c.totalCost != null ? formatCurrency(c.totalCost) : "–"}</td><td>${esc(c.provider ?? "")}</td></tr>`
+          )
+          .join("")}</tbody>
+      </table></section>`;
+  }
+
+  let documentSection = "";
+  if (data.documents.length) {
+    documentSection = `<section><h2>Dokumente (${data.documents.length})</h2><table>
+        <thead><tr><th>Titel</th><th>Kategorie</th><th>Ausgestellt</th><th>Gültig bis</th></tr></thead>
+        <tbody>${data.documents
+          .map(
+            (d) => `<tr><td>${esc(d.title)}</td><td>${esc(documentCategoryLabel(d.category))}</td><td>${d.issueDate ? formatDate(d.issueDate) : "–"}</td><td>${d.expiresAt ? formatDate(d.expiresAt) : "–"}</td></tr>`
+          )
+          .join("")}</tbody>
+      </table></section>`;
+  }
+
+  let leasingSection = "";
+  if (data.leasing) {
+    const l = data.leasing;
+    const st = leasingStatus(l, currentOdometer);
+    const rows = [
+      l.provider ? detail("Anbieter", esc(l.provider)) : "",
+      detail("Laufzeit", `${formatDate(l.startDate)} – ${formatDate(l.endDate)}`),
+      l.monthlyRate != null ? detail("Monatsrate", formatCurrency(l.monthlyRate)) : "",
+      l.annualKmLimit != null ? detail("km-Limit/Jahr", formatKm(l.annualKmLimit)) : "",
+      st.totalKmAllowed != null ? detail("km-Budget", `${formatKm(st.drivenSinceStart)} / ${formatKm(st.totalKmAllowed)}`) : "",
+      st.totalKmAllowed != null ? detail("Hochrechnung", formatKm(st.projectedTotal)) : "",
+      st.projectedExcess != null && st.projectedExcess > 0
+        ? detail("Erw. Mehr-km", `${formatKm(st.projectedExcess)}${st.projectedExcessCost != null ? ` (≈ ${formatCurrency(st.projectedExcessCost)})` : ""}`)
+        : "",
+    ].join("");
+    leasingSection = `<section><h2>Leasing / Finanzierung</h2><div class="details">${rows}</div></section>`;
+  }
+
   return `<!doctype html><html lang="de"><head><meta charset="utf-8"><style>
   @page { size: A4; }
   * { box-sizing: border-box; }
@@ -167,9 +291,15 @@ function buildHtml(data: VehicleData): string {
     </header>
 
     <section><h2>Kennzahlen</h2><div class="stats">${cards}</div></section>
-    <section><h2>Tankbuch (${data.fuelEntries.length})</h2>${fuelTable}</section>
+    ${showFuel || data.fuelEntries.length ? `<section><h2>Tankbuch (${data.fuelEntries.length})</h2>${fuelTable}</section>` : ""}
     <section><h2>Reparaturen (${data.repairEntries.length})</h2>${repairTable}</section>
     <section><h2>Pflege (${data.cleaningEntries.length})</h2>${cleanTable}</section>
+    ${expenseSection}
+    ${tireSection}
+    ${tripSection}
+    ${chargeSection}
+    ${documentSection}
+    ${leasingSection}
   </body></html>`;
 }
 
@@ -184,6 +314,13 @@ export async function generateVehiclePdf(
       odometerEntries: { orderBy: [{ date: "desc" }] },
       repairEntries: { orderBy: [{ date: "desc" }] },
       cleaningEntries: { orderBy: [{ date: "desc" }] },
+      expenses: { orderBy: [{ date: "desc" }] },
+      tireSets: { orderBy: { createdAt: "asc" } },
+      tireChanges: { orderBy: [{ odometer: "desc" }] },
+      trips: { orderBy: [{ date: "desc" }] },
+      chargingSessions: { orderBy: [{ date: "desc" }] },
+      documents: { orderBy: [{ expiresAt: "asc" }] },
+      leasing: true,
     },
   });
   if (!vehicle) return null;
@@ -194,6 +331,13 @@ export async function generateVehiclePdf(
     odometerEntries: vehicle.odometerEntries,
     repairEntries: vehicle.repairEntries,
     cleaningEntries: vehicle.cleaningEntries,
+    expenses: vehicle.expenses,
+    tireSets: vehicle.tireSets,
+    tireChanges: vehicle.tireChanges,
+    trips: vehicle.trips,
+    chargingSessions: vehicle.chargingSessions,
+    documents: vehicle.documents,
+    leasing: vehicle.leasing,
   });
 
   const puppeteer = (await import("puppeteer")).default;

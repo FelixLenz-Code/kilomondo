@@ -16,6 +16,7 @@ export type CostDatum = {
   fuel: number;
   repair: number;
   cleaning: number;
+  other: number;
 };
 
 export function CostChart({ data }: { data: CostDatum[] }) {
@@ -58,7 +59,8 @@ export function CostChart({ data }: { data: CostDatum[] }) {
         <Legend wrapperStyle={{ fontSize: 12 }} />
         <Bar dataKey="fuel" name="Kraftstoff" stackId="a" fill="hsl(38 92% 55%)" radius={[0, 0, 0, 0]} />
         <Bar dataKey="repair" name="Reparatur" stackId="a" fill="hsl(190 75% 48%)" />
-        <Bar dataKey="cleaning" name="Pflege" stackId="a" fill="hsl(280 60% 60%)" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="cleaning" name="Pflege" stackId="a" fill="hsl(280 60% 60%)" />
+        <Bar dataKey="other" name="Sonstiges" stackId="a" fill="hsl(160 60% 45%)" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );
