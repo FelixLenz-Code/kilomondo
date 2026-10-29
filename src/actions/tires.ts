@@ -7,8 +7,8 @@ import { tireSetSchema, tireChangeSchema, tireMeasurementSchema } from "@/lib/va
 
 export type ActionState = { error?: string; success?: string };
 
-function fail(parsed: { error: { errors: { message: string }[] } }): ActionState {
-  return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
+function fail(parsed: { error: { issues: { message: string }[] } }): ActionState {
+  return { error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
 }
 
 async function canEdit(vehicleId: string): Promise<boolean> {

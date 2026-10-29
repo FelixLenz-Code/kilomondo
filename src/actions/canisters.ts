@@ -10,8 +10,8 @@ export type ActionState = { error?: string; success?: string };
 
 const EPS = 1e-6;
 
-function fail(parsed: { error: { errors: { message: string }[] } }): ActionState {
-  return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
+function fail(parsed: { error: { issues: { message: string }[] } }): ActionState {
+  return { error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
 }
 
 // Canisters belong to the vehicle's owner but are usable by anyone with edit

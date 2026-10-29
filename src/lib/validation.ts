@@ -8,7 +8,7 @@ const optionalString = z
   .nullish()
   .transform((v) => (v == null || v === "" ? undefined : v));
 
-const coerceNumber = z.coerce.number({ invalid_type_error: "Zahl erforderlich" });
+const coerceNumber = z.coerce.number({ error: "Zahl erforderlich" });
 
 // Optional, non-negative integer. Empty string / null (unfilled field) -> undefined
 // so a nullable column stays null instead of being coerced to 0.

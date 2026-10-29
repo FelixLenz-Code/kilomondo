@@ -20,7 +20,7 @@ export async function createUserAction(
     role: formData.get("role"),
   });
   if (!parsed.success) {
-    return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
+    return { error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
 
   const existing = await db.user.findUnique({
@@ -51,7 +51,7 @@ export async function resetPasswordAction(
     password: formData.get("password"),
   });
   if (!parsed.success) {
-    return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
+    return { error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
 
   const passwordHash = await hashPassword(parsed.data.password);

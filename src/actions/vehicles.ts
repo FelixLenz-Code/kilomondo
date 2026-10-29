@@ -47,7 +47,7 @@ export async function createVehicleAction(
   const user = await requireUser();
   const parsed = parseVehicle(formData);
   if (!parsed.success) {
-    return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
+    return { error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
 
   let glb: Buffer | null;
@@ -87,7 +87,7 @@ export async function updateVehicleAction(
 
   const parsed = parseVehicle(formData);
   if (!parsed.success) {
-    return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
+    return { error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
 
   let glb: Buffer | null;

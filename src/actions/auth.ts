@@ -97,7 +97,7 @@ export async function changePasswordAction(
     confirmPassword: formData.get("confirmPassword"),
   });
   if (!parsed.success) {
-    return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
+    return { error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
 
   const dbUser = await db.user.findUnique({ where: { id: user.id } });

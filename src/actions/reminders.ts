@@ -29,7 +29,7 @@ export async function createReminderAction(
     recurrenceMonths: formData.get("recurrenceMonths"),
   });
   if (!parsed.success) {
-    return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
+    return { error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
   const d = parsed.data;
 
@@ -62,7 +62,7 @@ export async function updateReminderAction(
     recurrenceMonths: formData.get("recurrenceMonths"),
   });
   if (!parsed.success) {
-    return { error: parsed.error.errors[0]?.message ?? "Ungültige Eingabe." };
+    return { error: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
   const d = parsed.data;
   if (d.type === "LOG") {
