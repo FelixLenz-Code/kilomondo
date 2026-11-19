@@ -7,7 +7,7 @@
 ############################
 # 1. Dependencies
 ############################
-FROM node:24.22.2-bookworm-slim AS deps
+FROM node:24.22.3-bookworm-slim AS deps
 WORKDIR /app
 RUN apt-get update -y && apt-get upgrade -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json* ./
@@ -18,7 +18,7 @@ RUN npm ci
 ############################
 # 2. Builder
 ############################
-FROM node:24.22.2-bookworm-slim AS builder
+FROM node:24.22.3-bookworm-slim AS builder
 WORKDIR /app
 RUN apt-get update -y && apt-get upgrade -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app/node_modules ./node_modules
@@ -31,7 +31,7 @@ RUN npm run build
 ############################
 # 3. Runner
 ############################
-FROM node:24.22.2-bookworm-slim AS runner
+FROM node:24.22.3-bookworm-slim AS runner
 WORKDIR /app
 # openssl (Prisma), ffmpeg (video encoding) and chromium + fonts (headless 3D
 # animation rendering via puppeteer). The chromium package pulls in the
